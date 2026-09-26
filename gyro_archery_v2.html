@@ -1,0 +1,1103 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+  <meta name="theme-color" content="#183a4b" />
+  <title>Gyro Archery V2</title>
+  <style>
+    :root{
+      --glass: rgba(12, 27, 38, .68);
+      --glass2: rgba(12, 27, 38, .82);
+      --line: rgba(255,255,255,.18);
+      --text: #fff;
+      --muted: rgba(255,255,255,.72);
+      --accent: #ffd84d;
+      --good: #83e596;
+      --warn: #ffd166;
+      --danger: #ff857c;
+    }
+
+    *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+    html,body{
+      margin:0;width:100%;height:100%;overflow:hidden;
+      background:#07141e;color:var(--text);
+      font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans TC",sans-serif;
+    }
+    button,input{font:inherit}
+
+    #app{
+      position:relative;
+      width:100%;
+      height:100dvh;
+      overflow:hidden;
+      touch-action:none;
+      background:
+        linear-gradient(to bottom,#7fc5ee 0 43%,#9bcf75 43% 60%,#6ca155 60% 100%);
+    }
+
+    /* simple scenery */
+    .skyGlow{
+      position:absolute;inset:0 0 45% 0;pointer-events:none;
+      background:radial-gradient(circle at 74% 18%,rgba(255,255,255,.42),transparent 24%);
+    }
+    .hills{
+      position:absolute;left:-12%;right:-12%;top:34%;height:30%;opacity:.23;pointer-events:none;
+      background:
+        linear-gradient(145deg,transparent 0 26%,#325e51 26% 51%,transparent 51%) 0 0/46% 100% repeat-x;
+    }
+    .rangeLane{
+      position:absolute;left:50%;bottom:-16%;width:76%;height:60%;transform:translateX(-50%);
+      background:linear-gradient(to bottom,rgba(227,208,147,.36),rgba(182,148,77,.62));
+      clip-path:polygon(38% 0,62% 0,100% 100%,0 100%);
+      pointer-events:none;
+    }
+
+    /* HUD */
+    #hud{
+      position:absolute;z-index:15;
+      top:max(10px,env(safe-area-inset-top));
+      left:10px;right:10px;
+      display:grid;
+      grid-template-columns:1fr auto 1fr;
+      align-items:start;gap:8px;
+      pointer-events:none;
+    }
+    .hudBox{
+      min-width:82px;
+      padding:8px 11px;
+      border:1px solid var(--line);
+      background:var(--glass);
+      border-radius:15px;
+      backdrop-filter:blur(8px);
+      box-shadow:0 8px 22px rgba(0,0,0,.12);
+    }
+    .hudBox.right{text-align:right;justify-self:end}
+    .hudLabel{font-size:9px;letter-spacing:.16em;opacity:.7}
+    .hudValue{font-size:21px;font-weight:900;line-height:1.1;margin-top:2px}
+    #recenterBtn{
+      pointer-events:auto;
+      border:1px solid var(--line);
+      color:#fff;background:var(--glass);
+      border-radius:14px;
+      padding:9px 11px;
+      font-size:12px;font-weight:800;
+      backdrop-filter:blur(8px);
+    }
+
+    /* World + target */
+    #world{position:absolute;inset:0;overflow:hidden}
+    #targetWrap{
+      position:absolute;
+      left:50%;
+      top:45%;
+      width:clamp(152px,44vw,210px);
+      aspect-ratio:1;
+      transform:translate(-50%,-50%);
+      will-change:left,top;
+      filter:drop-shadow(0 13px 11px rgba(0,0,0,.23));
+    }
+    #target{
+      position:relative;width:100%;height:100%;border-radius:50%;
+      border:6px solid #ddd7c7;
+      background:
+        radial-gradient(circle,
+          #ffd83d 0 10%,
+          #efbd2a 10% 20%,
+          #f04f46 20% 30%,
+          #bb2933 30% 40%,
+          #5eb0e3 40% 50%,
+          #2475b7 50% 60%,
+          #242424 60% 70%,
+          #3b3b3b 70% 80%,
+          #f3efe6 80% 90%,
+          #d9d5ca 90% 100%);
+      box-shadow:inset 0 0 0 2px rgba(0,0,0,.14);
+    }
+    #target:after{
+      content:"";position:absolute;inset:49%;border-radius:50%;background:#151515;opacity:.35;
+    }
+    #stand{
+      position:absolute;left:50%;top:94%;width:58%;height:95%;
+      transform:translateX(-50%);
+      border-left:7px solid #725236;border-right:7px solid #725236;
+      clip-path:polygon(25% 0,75% 0,100% 100%,79% 100%,65% 17%,35% 17%,21% 100%,0 100%);
+      opacity:.88;z-index:-1;
+    }
+    #impactLayer{position:absolute;inset:0;pointer-events:none}
+    .impact{
+      position:absolute;width:12px;height:12px;border-radius:50%;
+      background:#f6f6f6;border:3px solid #1a2630;
+      transform:translate(-50%,-50%);
+      box-shadow:0 0 0 2px rgba(255,255,255,.4);
+    }
+    .impact:after{
+      content:"";position:absolute;left:6px;top:2px;width:28px;height:4px;border-radius:4px;
+      background:#5d4436;transform:rotate(-16deg);transform-origin:left center;
+    }
+
+    /* fixed sight */
+    #crosshair{
+      position:absolute;z-index:12;
+      left:50%;top:45%;
+      width:52px;height:52px;
+      transform:translate(-50%,-50%);
+      pointer-events:none;
+    }
+    #crosshair .ring{
+      position:absolute;inset:7px;border:2px solid rgba(255,255,255,.96);border-radius:50%;
+      box-shadow:0 0 0 1px rgba(0,0,0,.24),0 0 12px rgba(0,0,0,.12);
+    }
+    #crosshair .dot{
+      position:absolute;left:50%;top:50%;width:7px;height:7px;border-radius:50%;
+      transform:translate(-50%,-50%);background:#ff4c4c;
+      box-shadow:0 0 0 2px #fff;
+    }
+    #crosshair .h,#crosshair .v{position:absolute;background:rgba(255,255,255,.93)}
+    #crosshair .h{left:0;right:0;top:50%;height:1.5px}
+    #crosshair .v{top:0;bottom:0;left:50%;width:1.5px}
+
+    /* status */
+    #bottomPanel{
+      position:absolute;z-index:18;
+      left:12px;right:12px;
+      bottom:max(12px,env(safe-area-inset-bottom));
+      display:grid;gap:8px;
+      pointer-events:none;
+    }
+    #gesturePill{
+      justify-self:center;
+      border:1px solid var(--line);
+      background:var(--glass2);
+      border-radius:999px;
+      padding:8px 14px;
+      font-weight:900;font-size:14px;
+      backdrop-filter:blur(8px);
+      box-shadow:0 8px 22px rgba(0,0,0,.13);
+    }
+    #powerCard{
+      border:1px solid var(--line);
+      background:var(--glass2);
+      border-radius:16px;padding:10px 12px 11px;
+      backdrop-filter:blur(8px);
+    }
+    #powerTop{display:flex;justify-content:space-between;align-items:center;margin-bottom:7px}
+    #powerTop span:first-child{font-size:11px;font-weight:800;opacity:.78}
+    #powerText{font-size:13px;font-weight:900}
+    #powerTrack{height:11px;border-radius:999px;background:rgba(255,255,255,.16);overflow:hidden}
+    #powerFill{
+      height:100%;width:0%;
+      border-radius:999px;
+      background:linear-gradient(to right,#75db86,#ffd84d,#ff8f69);
+      transition:width .05s linear;
+    }
+    #powerCard.full #powerFill{animation:fullPulse .45s ease}
+    @keyframes fullPulse{
+      0%{filter:brightness(1)}
+      50%{filter:brightness(1.45)}
+      100%{filter:brightness(1)}
+    }
+
+    /* score feedback */
+    #scoreFlash{
+      position:absolute;z-index:25;left:50%;top:31%;
+      transform:translate(-50%,-50%) scale(.7);
+      font-size:52px;font-weight:950;opacity:0;
+      text-shadow:0 5px 18px rgba(0,0,0,.33);
+      pointer-events:none;
+    }
+    #scoreFlash.show{animation:scorePop .9s ease}
+    @keyframes scorePop{
+      0%{opacity:0;transform:translate(-50%,-50%) scale(.62)}
+      20%{opacity:1;transform:translate(-50%,-50%) scale(1.08)}
+      70%{opacity:1;transform:translate(-50%,-62%) scale(1)}
+      100%{opacity:0;transform:translate(-50%,-77%) scale(.94)}
+    }
+    #flyingArrow{
+      position:absolute;z-index:22;left:50%;top:78%;
+      width:140px;height:5px;border-radius:5px;background:#5f4434;
+      transform:translate(-50%,-50%) scale(1.3);opacity:0;pointer-events:none;
+    }
+    #flyingArrow:after{
+      content:"";position:absolute;right:-12px;top:-5px;
+      border-left:14px solid #e2e7eb;border-top:7px solid transparent;border-bottom:7px solid transparent;
+    }
+    #flyingArrow.fly{animation:flyArrow .48s cubic-bezier(.18,.72,.2,1)}
+    @keyframes flyArrow{
+      0%{opacity:1;transform:translate(-50%,-50%) scale(1.35)}
+      100%{opacity:.9;transform:translate(-50%,-410%) scale(.17)}
+    }
+
+    /* overlays */
+    .overlay{
+      position:absolute;z-index:50;inset:0;
+      display:flex;align-items:center;justify-content:center;
+      padding:22px;
+      background:linear-gradient(180deg,rgba(9,26,38,.95),rgba(7,17,27,.98));
+    }
+    .overlay.hidden{display:none}
+    .card{
+      width:min(100%,430px);
+      max-height:92dvh;overflow:auto;
+      padding:22px 18px;
+      border-radius:24px;
+      border:1px solid rgba(255,255,255,.14);
+      background:rgba(255,255,255,.07);
+      box-shadow:0 26px 82px rgba(0,0,0,.3);
+    }
+    .logo{text-align:center;font-size:44px;margin-bottom:4px}
+    h1{margin:2px 0 7px;text-align:center;font-size:28px;line-height:1.05}
+    .sub{text-align:center;margin:0 0 18px;color:var(--muted);font-size:13px;line-height:1.5}
+    .steps{display:grid;gap:9px;margin:16px 0}
+    .step{
+      display:grid;grid-template-columns:40px 1fr;gap:11px;align-items:center;
+      padding:10px;border-radius:15px;background:rgba(255,255,255,.055)
+    }
+    .step .ico{text-align:center;font-size:25px}
+    .step b{display:block;font-size:13px}
+    .step span{display:block;font-size:11px;opacity:.7;margin-top:2px;line-height:1.4}
+    .primary,.secondary{
+      width:100%;border-radius:15px;padding:13px 14px;
+      font-weight:900;cursor:pointer;margin-top:8px;
+    }
+    .primary{border:0;background:var(--accent);color:#17212b}
+    .secondary{border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.08);color:#fff}
+    .primary:disabled{opacity:.45;cursor:default}
+    .note{font-size:10.5px;line-height:1.5;opacity:.62;text-align:center;margin:11px 4px 0}
+    #setupMsg{min-height:19px;margin-top:8px;text-align:center;font-size:12px;color:#ffe57c}
+
+    #cameraBox{
+      position:relative;width:100%;aspect-ratio:4/3;
+      border-radius:17px;overflow:hidden;background:#05090c;
+      border:1px solid rgba(255,255,255,.14);
+      margin:13px 0;
+    }
+    #camera{
+      position:absolute;inset:0;width:100%;height:100%;object-fit:cover;
+      transform:scaleX(-1);
+    }
+    #gestureBadge{
+      position:absolute;left:10px;bottom:10px;
+      padding:7px 10px;border-radius:999px;
+      background:rgba(0,0,0,.66);font-size:12px;font-weight:900;
+      border:1px solid rgba(255,255,255,.18);
+    }
+    .testGrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:8px 0 10px}
+    .testItem{
+      text-align:center;padding:10px;border-radius:14px;
+      background:rgba(255,255,255,.055);font-size:11px
+    }
+    .testItem b{display:block;font-size:15px;margin-top:3px}
+    .ok{color:var(--good)}
+    #aimState{font-size:12px;text-align:center;color:var(--warn);margin:6px 0}
+
+    .sensWrap{
+      margin-top:12px;padding:11px;border-radius:15px;background:rgba(255,255,255,.055)
+    }
+    .sensTitle{font-size:11px;font-weight:800;opacity:.75;margin-bottom:8px}
+    .seg{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+    .seg button{
+      border:1px solid rgba(255,255,255,.13);background:rgba(255,255,255,.06);color:#fff;
+      border-radius:11px;padding:8px 5px;font-size:11px;font-weight:800;
+    }
+    .seg button.active{background:#fff;color:#12212e}
+
+    #endScore{text-align:center;font-size:52px;font-weight:950;margin:13px 0 4px}
+    #endBreakdown{text-align:center;font-size:12px;opacity:.72;line-height:1.7}
+
+    /* landscape warning */
+    #rotateOverlay{z-index:80}
+    #rotateOverlay .card{max-width:330px}
+
+    /* debug */
+    #debug{
+      position:absolute;z-index:70;right:7px;top:78px;
+      width:190px;padding:8px;border-radius:10px;
+      background:rgba(0,0,0,.74);font:10.5px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;
+      white-space:pre-wrap;display:none;pointer-events:none;
+    }
+    #debugCam{
+      position:absolute;z-index:69;right:7px;top:258px;
+      width:145px;aspect-ratio:4/3;object-fit:cover;transform:scaleX(-1);
+      border-radius:9px;border:1px solid rgba(255,255,255,.45);display:none;background:#000;
+    }
+
+    @media (min-width:700px){
+      body{background:#07111c}
+      #app{max-width:500px;margin:auto;box-shadow:0 0 65px rgba(0,0,0,.38)}
+    }
+  </style>
+</head>
+<body>
+<div id="app">
+  <div class="skyGlow"></div>
+  <div class="hills"></div>
+  <div class="rangeLane"></div>
+
+  <div id="hud">
+    <div class="hudBox">
+      <div class="hudLabel">ARROWS</div>
+      <div class="hudValue" id="arrowCount">5 / 5</div>
+    </div>
+
+    <button id="recenterBtn">🎯 置中</button>
+
+    <div class="hudBox right">
+      <div class="hudLabel">SCORE</div>
+      <div class="hudValue" id="score">0</div>
+    </div>
+  </div>
+
+  <div id="world">
+    <div id="targetWrap">
+      <div id="target">
+        <div id="impactLayer"></div>
+      </div>
+      <div id="stand"></div>
+    </div>
+  </div>
+
+  <div id="crosshair">
+    <div class="ring"></div>
+    <div class="h"></div><div class="v"></div><div class="dot"></div>
+  </div>
+
+  <div id="flyingArrow"></div>
+  <div id="scoreFlash">+10</div>
+
+  <div id="bottomPanel">
+    <div id="gesturePill">🤚 準備</div>
+    <div id="powerCard">
+      <div id="powerTop">
+        <span>拉弓力度</span>
+        <span id="powerText">0%</span>
+      </div>
+      <div id="powerTrack"><div id="powerFill"></div></div>
+    </div>
+  </div>
+
+  <div id="startOverlay" class="overlay">
+    <div class="card">
+      <div class="logo">🏹</div>
+      <h1>Gyro Archery V2</h1>
+      <p class="sub">穩定操作版：手機瞄準 + 握拳拉弓 + 放掌射箭</p>
+
+      <div class="steps">
+        <div class="step"><div class="ico">📱</div><div><b>左手拿手機</b><span>像自拍一樣，用手機方向控制準星。</span></div></div>
+        <div class="step"><div class="ico">👊🏻</div><div><b>握拳開始拉弓</b><span>保持握拳約 0.8 秒，力度會自動增加。</span></div></div>
+        <div class="step"><div class="ico">🤚🏻</div><div><b>張開手掌放箭</b><span>只判斷 OPEN / CLOSED，不再估算手與鏡頭距離。</span></div></div>
+      </div>
+
+      <button class="primary" id="startBtn">開始設定</button>
+      <div id="setupMsg"></div>
+      <p class="note">需要相機及動作感應器權限。鏡頭影像只在你的裝置內用於手勢辨認，不會上載或儲存。</p>
+    </div>
+  </div>
+
+  <div id="calOverlay" class="overlay hidden">
+    <div class="card">
+      <h1 style="font-size:23px">手勢及瞄準設定</h1>
+      <p class="sub">不用把整隻手臂放進畫面，只要鏡頭能看到足夠的手指／拳頭輪廓即可。</p>
+
+      <div id="cameraBox">
+        <video id="camera" playsinline muted autoplay></video>
+        <div id="gestureBadge">等待右手…</div>
+      </div>
+
+      <div class="testGrid">
+        <div class="testItem">握拳測試<b id="fistTest">👊🏻 未完成</b></div>
+        <div class="testItem">張開測試<b id="openTest">🤚🏻 未完成</b></div>
+      </div>
+
+      <button class="primary" id="calibrateAimBtn">🎯 以目前方向設定為準星中心</button>
+      <div id="aimState">尚未設定準星中心</div>
+
+      <div class="sensWrap">
+        <div class="sensTitle">瞄準靈敏度</div>
+        <div class="seg">
+          <button data-sens="low" class="active">LOW</button>
+          <button data-sens="normal">NORMAL</button>
+          <button data-sens="high">HIGH</button>
+        </div>
+      </div>
+
+      <button class="secondary" id="enterGameBtn">開始射箭</button>
+      <p class="note">如果之後覺得瞄準偏移，遊戲中可直接按「🎯 置中」。</p>
+    </div>
+  </div>
+
+  <div id="endOverlay" class="overlay hidden">
+    <div class="card">
+      <div class="logo">🎯</div>
+      <h1>本局完成</h1>
+      <div id="endScore">0 / 50</div>
+      <div id="endBreakdown">—</div>
+      <button class="primary" id="againBtn">再玩一次</button>
+      <button class="secondary" id="endCalBtn">重新設定</button>
+    </div>
+  </div>
+
+  <div id="rotateOverlay" class="overlay hidden">
+    <div class="card">
+      <div class="logo">📱</div>
+      <h1 style="font-size:24px">請將手機直向使用</h1>
+      <p class="sub">回到直向後會暫停射擊，並建議重新置中。</p>
+    </div>
+  </div>
+
+  <pre id="debug"></pre>
+  <video id="debugCam" playsinline muted autoplay></video>
+</div>
+
+<script type="module">
+import { GestureRecognizer, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest";
+
+const MODEL_URL =
+  "https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task";
+
+const $ = (id) => document.getElementById(id);
+const app = $("app");
+const video = $("camera");
+const debugCam = $("debugCam");
+
+const debugMode = new URLSearchParams(location.search).get("debug") === "1";
+
+// ---------- helpers ----------
+const clamp = (v,min,max) => Math.max(min,Math.min(max,v));
+const lerp = (a,b,t) => a + (b-a)*t;
+
+function angleDiff(a,b){
+  let d = a-b;
+  while(d > 180) d -= 360;
+  while(d < -180) d += 360;
+  return d;
+}
+
+function applyDeadZone(v, zone){
+  if(Math.abs(v) <= zone) return 0;
+  return Math.sign(v) * (Math.abs(v)-zone);
+}
+
+// ---------- app state ----------
+let recognizer = null;
+let stream = null;
+let running = false;
+let gameActive = false;
+let pausedForRotate = false;
+
+let score = 0;
+let arrowsLeft = 5;
+let shotScores = [];
+let impacts = [];
+let shotLock = false;
+
+// ---------- gesture state ----------
+let rawGesture = "UNKNOWN";      // OPEN / CLOSED / UNKNOWN
+let stableGesture = "UNKNOWN";
+let candidateGesture = "UNKNOWN";
+let candidateSince = 0;
+let gestureConfidence = 0;
+
+let anyHandSeen = false;
+let lastAnyHandSeen = 0;
+let fistSeenInCalibration = false;
+let openSeenInCalibration = false;
+
+const CLOSED_STABLE_MS = 180;
+const OPEN_STABLE_MS = 120;
+const HAND_LOST_CANCEL_MS = 700;
+
+// ---------- draw state ----------
+let drawState = "READY";         // READY / DRAWING / ARMED
+let drawStartTime = 0;
+let power = 0;
+let fullDrawBuzzed = false;
+
+const MIN_SHOOT_POWER = 30;
+const FULL_DRAW_MS = 800;
+
+// ---------- gyro state ----------
+let orientation = { alpha:null, beta:null, gamma:null, t:0 };
+let filtered = { alpha:null, beta:null };
+let neutral = { alpha:null, beta:null };
+
+let desiredTarget = { x:0, y:0 };
+let displayedTarget = { x:0, y:0 };
+
+const DEAD_ZONE_DEG = 1.25;
+const SENSOR_EMA = 0.08;
+const MAX_MOVE_PER_FRAME = 3.4;
+
+const sensitivityProfiles = {
+  low:    { h:2.4, v:2.0 },
+  normal: { h:3.0, v:2.5 },
+  high:   { h:3.6, v:3.0 }
+};
+let sensitivityKey = "low";
+
+// ---------- permissions ----------
+async function requestMotionPermission(){
+  if(typeof DeviceOrientationEvent === "undefined"){
+    throw new Error("此瀏覽器不支援 DeviceOrientation。");
+  }
+
+  if(typeof DeviceOrientationEvent.requestPermission === "function"){
+    const result = await DeviceOrientationEvent.requestPermission();
+    if(result !== "granted"){
+      throw new Error("動作感應器權限被拒絕。");
+    }
+  }
+
+  window.addEventListener("deviceorientation", onOrientation, true);
+}
+
+function onOrientation(e){
+  if(e.alpha == null || e.beta == null) return;
+
+  orientation.alpha = e.alpha;
+  orientation.beta = e.beta;
+  orientation.gamma = e.gamma;
+  orientation.t = performance.now();
+
+  if(filtered.alpha == null){
+    filtered.alpha = e.alpha;
+    filtered.beta = e.beta;
+    return;
+  }
+
+  const da = angleDiff(e.alpha, filtered.alpha);
+  filtered.alpha = (filtered.alpha + da * SENSOR_EMA + 360) % 360;
+  filtered.beta = lerp(filtered.beta, e.beta, SENSOR_EMA);
+}
+
+// ---------- camera + MediaPipe ----------
+async function initCamera(){
+  stream = await navigator.mediaDevices.getUserMedia({
+    video:{
+      facingMode:"user",
+      width:{ideal:640},
+      height:{ideal:480},
+      frameRate:{ideal:20,max:24}
+    },
+    audio:false
+  });
+
+  video.srcObject = stream;
+  debugCam.srcObject = stream;
+  await video.play();
+}
+
+async function initRecognizer(){
+  const vision = await FilesetResolver.forVisionTasks(
+    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm"
+  );
+
+  recognizer = await GestureRecognizer.createFromOptions(vision,{
+    baseOptions:{modelAssetPath:MODEL_URL},
+    runningMode:"VIDEO",
+    numHands:2,
+    minHandDetectionConfidence:0.48,
+    minHandPresenceConfidence:0.48,
+    minTrackingConfidence:0.45,
+    cannedGesturesClassifierOptions:{
+      scoreThreshold:0.48,
+      categoryAllowlist:["Closed_Fist","Open_Palm"]
+    }
+  });
+}
+
+function parseGestureResult(result, now){
+  anyHandSeen = !!(result?.landmarks?.length);
+  if(anyHandSeen) lastAnyHandSeen = now;
+
+  let best = null;
+
+  if(result?.gestures?.length){
+    for(let i=0;i<result.gestures.length;i++){
+      const g = result.gestures[i]?.[0];
+      if(!g) continue;
+
+      const mapped =
+        g.categoryName === "Closed_Fist" ? "CLOSED" :
+        g.categoryName === "Open_Palm" ? "OPEN" :
+        "UNKNOWN";
+
+      if(mapped === "UNKNOWN") continue;
+
+      if(!best || g.score > best.score){
+        best = {gesture:mapped,score:g.score};
+      }
+    }
+  }
+
+  if(best){
+    rawGesture = best.gesture;
+    gestureConfidence = best.score;
+    if(rawGesture === "CLOSED") fistSeenInCalibration = true;
+    if(rawGesture === "OPEN") openSeenInCalibration = true;
+  }else{
+    rawGesture = "UNKNOWN";
+    gestureConfidence = 0;
+  }
+
+  updateCalibrationUI();
+  updateStableGesture(now);
+}
+
+function updateStableGesture(now){
+  if(rawGesture === "UNKNOWN") return;
+
+  if(rawGesture !== candidateGesture){
+    candidateGesture = rawGesture;
+    candidateSince = now;
+    return;
+  }
+
+  const required = rawGesture === "OPEN" ? OPEN_STABLE_MS : CLOSED_STABLE_MS;
+
+  if(now - candidateSince >= required && stableGesture !== rawGesture){
+    stableGesture = rawGesture;
+    onStableGestureChanged(stableGesture, now);
+  }
+}
+
+function onStableGestureChanged(g, now){
+  if(!gameActive || shotLock || pausedForRotate) return;
+
+  if(g === "CLOSED"){
+    if(drawState === "READY"){
+      drawState = "DRAWING";
+      drawStartTime = now;
+      power = 0;
+      fullDrawBuzzed = false;
+      setStatus("👊 拉弓中…");
+      setPower(0);
+    }
+    return;
+  }
+
+  if(g === "OPEN"){
+    if(drawState === "ARMED"){
+      shootArrow();
+    }else if(drawState === "DRAWING"){
+      cancelDraw("🤚 拉力不足，重新握拳");
+    }else{
+      setStatus("🤚 準備");
+    }
+  }
+}
+
+function updateCalibrationUI(){
+  $("gestureBadge").textContent =
+    rawGesture === "CLOSED" ? "👊🏻 CLOSED" :
+    rawGesture === "OPEN" ? "🤚🏻 OPEN" :
+    anyHandSeen ? "✋ 手已偵測，判斷中…" : "等待右手…";
+
+  $("fistTest").textContent = fistSeenInCalibration ? "✓ 已辨認" : "👊🏻 未完成";
+  $("openTest").textContent = openSeenInCalibration ? "✓ 已辨認" : "🤚🏻 未完成";
+
+  $("fistTest").classList.toggle("ok",fistSeenInCalibration);
+  $("openTest").classList.toggle("ok",openSeenInCalibration);
+}
+
+// ---------- draw logic ----------
+function updateDraw(now){
+  if(drawState !== "DRAWING" && drawState !== "ARMED") return;
+
+  if(now - lastAnyHandSeen > HAND_LOST_CANCEL_MS){
+    cancelDraw("✋ 找不到右手，請重新開始");
+    return;
+  }
+
+  // 只要最近仍見到手，而且沒有穩定辨認成 OPEN，就保留拉弓狀態。
+  // 拉弓力度只由時間決定，不使用手掌大小、距離或深度。
+  const elapsed = now - drawStartTime;
+  power = clamp(elapsed / FULL_DRAW_MS * 100, 0, 100);
+  setPower(power);
+
+  if(power >= MIN_SHOOT_POWER){
+    drawState = "ARMED";
+    setStatus(power >= 100 ? "🏹 FULL DRAW — 放開手掌" : "🏹 已拉弓 — 放開手掌");
+  }
+
+  if(power >= 100 && !fullDrawBuzzed){
+    fullDrawBuzzed = true;
+    const card = $("powerCard");
+    card.classList.remove("full");
+    void card.offsetWidth;
+    card.classList.add("full");
+    if(navigator.vibrate) navigator.vibrate(20);
+  }
+}
+
+function cancelDraw(msg="🤚 準備"){
+  drawState = "READY";
+  drawStartTime = 0;
+  power = 0;
+  fullDrawBuzzed = false;
+  setPower(0);
+  setStatus(msg);
+}
+
+function setPower(v){
+  const n = clamp(v,0,100);
+  $("powerFill").style.width = `${n}%`;
+  $("powerText").textContent = `${Math.round(n)}%`;
+}
+
+function setStatus(text){
+  $("gesturePill").textContent = text;
+}
+
+// ---------- aiming ----------
+function calibrateAim(){
+  if(filtered.alpha == null || filtered.beta == null){
+    $("aimState").textContent = "⚠️ 暫時未收到陀螺儀數值";
+    return;
+  }
+
+  neutral.alpha = filtered.alpha;
+  neutral.beta = filtered.beta;
+  desiredTarget.x = 0;
+  desiredTarget.y = 0;
+  displayedTarget.x = 0;
+  displayedTarget.y = 0;
+
+  $("aimState").textContent = "✓ 已設定準星中心";
+  $("aimState").style.color = "#83e596";
+}
+
+function updateAim(){
+  if(filtered.alpha == null || neutral.alpha == null) return;
+
+  const profile = sensitivityProfiles[sensitivityKey];
+
+  let dx = angleDiff(filtered.alpha, neutral.alpha);
+  let dy = filtered.beta - neutral.beta;
+
+  dx = applyDeadZone(dx, DEAD_ZONE_DEG);
+  dy = applyDeadZone(dy, DEAD_ZONE_DEG);
+
+  const w = app.clientWidth;
+  const h = app.clientHeight;
+
+  desiredTarget.x = clamp(-dx * profile.h, -w * 0.40, w * 0.40);
+  desiredTarget.y = clamp( dy * profile.v, -h * 0.28, h * 0.28);
+
+  // speed limit: target can only move a few pixels per frame
+  const stepX = clamp(desiredTarget.x - displayedTarget.x, -MAX_MOVE_PER_FRAME, MAX_MOVE_PER_FRAME);
+  const stepY = clamp(desiredTarget.y - displayedTarget.y, -MAX_MOVE_PER_FRAME, MAX_MOVE_PER_FRAME);
+
+  displayedTarget.x += stepX;
+  displayedTarget.y += stepY;
+
+  const target = $("targetWrap");
+  target.style.left = `calc(50% + ${displayedTarget.x}px)`;
+  target.style.top = `calc(45% + ${displayedTarget.y}px)`;
+}
+
+// ---------- shooting ----------
+function scoreFromNormalizedHit(x,y){
+  const r = Math.sqrt(x*x+y*y);
+  if(r > 1) return 0;
+  return clamp(10 - Math.floor(r*10),1,10);
+}
+
+function shootArrow(){
+  if(shotLock || arrowsLeft <= 0) return;
+
+  shotLock = true;
+
+  const targetRect = $("target").getBoundingClientRect();
+  const crossX = app.clientWidth / 2;
+  const crossY = app.clientHeight * 0.45;
+
+  const targetX = targetRect.left + targetRect.width/2;
+  const targetY = targetRect.top + targetRect.height/2;
+  const radius = targetRect.width/2;
+
+  const drop =
+    clamp((70-power)/70,0,1) * targetRect.height * 0.09;
+
+  const hitX = (crossX - targetX) / radius;
+  const hitY = (crossY + drop - targetY) / radius;
+  const shotScore = scoreFromNormalizedHit(hitX,hitY);
+
+  const arrow = $("flyingArrow");
+  arrow.classList.remove("fly");
+  void arrow.offsetWidth;
+  arrow.classList.add("fly");
+
+  if(navigator.vibrate) navigator.vibrate(35);
+
+  setTimeout(()=>{
+    impacts.push({x:hitX,y:hitY,score:shotScore});
+    renderImpacts();
+
+    score += shotScore;
+    arrowsLeft--;
+    shotScores.push(shotScore);
+
+    $("score").textContent = score;
+    $("arrowCount").textContent = `${arrowsLeft} / 5`;
+    flashScore(shotScore);
+
+    drawState = "READY";
+    drawStartTime = 0;
+    power = 0;
+    fullDrawBuzzed = false;
+    setPower(0);
+    setStatus("🤚 準備");
+
+    // 必須再次辨認 CLOSED 才可拉下一箭
+    stableGesture = "UNKNOWN";
+    candidateGesture = "UNKNOWN";
+
+    setTimeout(()=>{
+      shotLock = false;
+      if(arrowsLeft <= 0) endGame();
+    },650);
+  },420);
+}
+
+function renderImpacts(){
+  const layer = $("impactLayer");
+  layer.innerHTML = "";
+
+  for(const p of impacts){
+    if(Math.sqrt(p.x*p.x+p.y*p.y) > 1.05) continue;
+
+    const el = document.createElement("div");
+    el.className = "impact";
+    el.style.left = `${50 + p.x*50}%`;
+    el.style.top = `${50 + p.y*50}%`;
+    layer.appendChild(el);
+  }
+}
+
+function flashScore(value){
+  const el = $("scoreFlash");
+  el.textContent = value > 0 ? `+${value}` : "MISS";
+  el.classList.remove("show");
+  void el.offsetWidth;
+  el.classList.add("show");
+}
+
+// ---------- game flow ----------
+function resetGame(){
+  score = 0;
+  arrowsLeft = 5;
+  shotScores = [];
+  impacts = [];
+  shotLock = false;
+
+  $("score").textContent = "0";
+  $("arrowCount").textContent = "5 / 5";
+
+  renderImpacts();
+  cancelDraw();
+  stableGesture = "UNKNOWN";
+  candidateGesture = "UNKNOWN";
+  gameActive = true;
+}
+
+function endGame(){
+  gameActive = false;
+  cancelDraw();
+
+  $("endScore").textContent = `${score} / 50`;
+  $("endBreakdown").textContent =
+    shotScores.map((s,i)=>`第 ${i+1} 箭：${s} 分`).join("　");
+
+  $("endOverlay").classList.remove("hidden");
+}
+
+// ---------- inference loop ----------
+let lastVideoTime = -1;
+let lastInference = 0;
+let inferenceCount = 0;
+let fpsWindowStart = performance.now();
+let inferenceFPS = 0;
+
+function processCamera(now){
+  if(!recognizer || !video.videoWidth || video.readyState < 2) return;
+  if(now - lastInference < 70) return; // 約 14 FPS
+  if(video.currentTime === lastVideoTime) return;
+
+  lastInference = now;
+  lastVideoTime = video.currentTime;
+
+  try{
+    const result = recognizer.recognizeForVideo(video,now);
+    parseGestureResult(result,now);
+
+    inferenceCount++;
+    if(now - fpsWindowStart > 1000){
+      inferenceFPS = inferenceCount * 1000 / (now - fpsWindowStart);
+      inferenceCount = 0;
+      fpsWindowStart = now;
+    }
+  }catch(err){
+    console.warn("Gesture inference error:",err);
+  }
+}
+
+// ---------- orientation / portrait ----------
+function checkOrientation(){
+  const landscape = window.innerWidth > window.innerHeight;
+
+  if(landscape){
+    if(!$("rotateOverlay").classList.contains("hidden")) return;
+
+    pausedForRotate = true;
+    if(drawState !== "READY") cancelDraw();
+    $("rotateOverlay").classList.remove("hidden");
+  }else{
+    const wasShown = !$("rotateOverlay").classList.contains("hidden");
+    $("rotateOverlay").classList.add("hidden");
+
+    if(wasShown){
+      pausedForRotate = false;
+      neutral.alpha = null;
+      neutral.beta = null;
+      setStatus("🎯 請按「置中」重新校準");
+    }
+  }
+}
+
+// ---------- debug ----------
+function updateDebug(){
+  if(!debugMode) return;
+
+  $("debug").textContent =
+`raw: ${rawGesture}
+stable: ${stableGesture}
+confidence: ${gestureConfidence.toFixed(2)}
+hand seen: ${anyHandSeen}
+draw state: ${drawState}
+power: ${power.toFixed(0)}%
+gyro raw α: ${orientation.alpha?.toFixed?.(1) ?? "-"}
+gyro raw β: ${orientation.beta?.toFixed?.(1) ?? "-"}
+smooth α: ${filtered.alpha?.toFixed?.(1) ?? "-"}
+smooth β: ${filtered.beta?.toFixed?.(1) ?? "-"}
+neutral α: ${neutral.alpha?.toFixed?.(1) ?? "-"}
+neutral β: ${neutral.beta?.toFixed?.(1) ?? "-"}
+target X: ${displayedTarget.x.toFixed(1)}
+target Y: ${displayedTarget.y.toFixed(1)}
+sensitivity: ${sensitivityKey}
+inference FPS: ${inferenceFPS.toFixed(1)}
+arrows: ${arrowsLeft}`;
+}
+
+// ---------- events ----------
+$("startBtn").addEventListener("click",async()=>{
+  const msg = $("setupMsg");
+  $("startBtn").disabled = true;
+
+  try{
+    msg.textContent = "正在要求動作感應器權限…";
+    await requestMotionPermission();
+
+    msg.textContent = "正在啟動前置鏡頭…";
+    await initCamera();
+
+    msg.textContent = "正在載入 OPEN / CLOSED 手勢辨識…";
+    await initRecognizer();
+
+    running = true;
+    msg.textContent = "";
+
+    $("startOverlay").classList.add("hidden");
+    $("calOverlay").classList.remove("hidden");
+  }catch(err){
+    console.error(err);
+    msg.textContent = "設定失敗：" + (err?.message || "請確認相機權限及 HTTPS。");
+    $("startBtn").disabled = false;
+  }
+});
+
+$("calibrateAimBtn").addEventListener("click",calibrateAim);
+
+$("enterGameBtn").addEventListener("click",()=>{
+  if(neutral.alpha == null){
+    calibrateAim();
+  }
+
+  if(neutral.alpha == null){
+    $("aimState").textContent = "⚠️ 請先等候陀螺儀數值，再設定準星中心";
+    return;
+  }
+
+  $("calOverlay").classList.add("hidden");
+  resetGame();
+});
+
+$("recenterBtn").addEventListener("click",()=>{
+  if(filtered.alpha == null) return;
+  neutral.alpha = filtered.alpha;
+  neutral.beta = filtered.beta;
+  desiredTarget.x = 0;
+  desiredTarget.y = 0;
+  displayedTarget.x = 0;
+  displayedTarget.y = 0;
+  setStatus("🎯 已重新置中");
+  setTimeout(()=>{
+    if(gameActive && drawState === "READY") setStatus("🤚 準備");
+  },650);
+});
+
+$("againBtn").addEventListener("click",()=>{
+  $("endOverlay").classList.add("hidden");
+  resetGame();
+});
+
+$("endCalBtn").addEventListener("click",()=>{
+  $("endOverlay").classList.add("hidden");
+  gameActive = false;
+  $("calOverlay").classList.remove("hidden");
+});
+
+document.querySelectorAll("[data-sens]").forEach(btn=>{
+  btn.addEventListener("click",()=>{
+    sensitivityKey = btn.dataset.sens;
+    document.querySelectorAll("[data-sens]").forEach(b=>b.classList.remove("active"));
+    btn.classList.add("active");
+  });
+});
+
+window.addEventListener("resize",checkOrientation);
+window.addEventListener("orientationchange",()=>{
+  setTimeout(checkOrientation,250);
+});
+
+document.addEventListener("visibilitychange",()=>{
+  if(document.hidden && drawState !== "READY"){
+    cancelDraw();
+  }
+});
+
+if(debugMode){
+  $("debug").style.display = "block";
+  $("debugCam").style.display = "block";
+}
+
+function loop(now){
+  if(running){
+    processCamera(now);
+
+    if(gameActive && !pausedForRotate){
+      updateDraw(now);
+      updateAim();
+    }
+
+    updateDebug();
+  }
+
+  requestAnimationFrame(loop);
+}
+
+checkOrientation();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
