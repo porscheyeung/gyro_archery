@@ -1,0 +1,851 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+  <meta name="theme-color" content="#10253a" />
+  <title>Gyro Archery V1</title>
+  <style>
+    :root{
+      --panel: rgba(10,18,28,.72);
+      --line: rgba(255,255,255,.22);
+      --accent: #ffd84d;
+      --good: #7ee787;
+      --warn: #ffcf67;
+      --danger: #ff7b72;
+    }
+    *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+    html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#10253a;font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans TC",sans-serif;color:white}
+    button{font:inherit}
+    #app{
+      position:relative;
+      width:100%;
+      height:100dvh;
+      overflow:hidden;
+      touch-action:none;
+      background:
+        linear-gradient(to bottom,#7fc4ef 0 42%,#8ac56c 42% 65%,#5c934c 65% 100%);
+    }
+    .mountains{
+      position:absolute;left:-10%;right:-10%;top:30%;height:26%;
+      opacity:.24;
+      background:
+        linear-gradient(145deg,transparent 0 28%,#315f50 28% 50%,transparent 50%) 0 0/42% 100% repeat-x;
+    }
+    .lane{
+      position:absolute;left:50%;bottom:-12%;width:64%;height:61%;
+      transform:translateX(-50%);
+      background:linear-gradient(to bottom,rgba(219,197,133,.45),rgba(184,153,82,.72));
+      clip-path:polygon(35% 0,65% 0,100% 100%,0 100%);
+    }
+    .hud{
+      position:absolute;z-index:15;top:max(12px,env(safe-area-inset-top));left:12px;right:12px;
+      display:flex;justify-content:space-between;align-items:flex-start;pointer-events:none;
+    }
+    .pill{
+      min-width:92px;padding:8px 12px;border:1px solid var(--line);border-radius:16px;
+      background:rgba(13,25,38,.58);backdrop-filter:blur(8px);box-shadow:0 8px 24px rgba(0,0,0,.12);
+    }
+    .pill .label{font-size:10px;letter-spacing:.14em;opacity:.72}
+    .pill .value{font-size:23px;font-weight:800;line-height:1.05;margin-top:3px}
+    #recalibrate{
+      pointer-events:auto;border:1px solid var(--line);background:rgba(13,25,38,.58);color:#fff;border-radius:14px;
+      padding:10px 12px;font-weight:700;backdrop-filter:blur(8px);
+    }
+    #world{
+      position:absolute;inset:0;
+    }
+    #targetWrap{
+      position:absolute;left:50%;top:43%;width:min(54vw,245px);aspect-ratio:1;
+      transform:translate(-50%,-50%);
+      will-change:transform,left,top;
+      filter:drop-shadow(0 14px 14px rgba(0,0,0,.24));
+    }
+    #target{
+      width:100%;height:100%;border-radius:50%;
+      border:7px solid #d8d1bd;
+      background:
+        radial-gradient(circle,
+          #ffd83d 0 10%,
+          #f1b92a 10% 20%,
+          #ee493f 20% 30%,
+          #b9242d 30% 40%,
+          #54a7dd 40% 50%,
+          #2471ad 50% 60%,
+          #222 60% 70%,
+          #3e3e3e 70% 80%,
+          #f5f1e8 80% 90%,
+          #d9d5cb 90% 100%);
+      position:relative;
+      box-shadow:inset 0 0 0 2px rgba(0,0,0,.2);
+    }
+    #target:after{
+      content:"";position:absolute;inset:49.2%;border-radius:50%;background:#111;opacity:.38;
+    }
+    #stand{
+      position:absolute;left:50%;top:92%;width:58%;height:86%;
+      transform:translateX(-50%);
+      border-left:8px solid #705433;border-right:8px solid #705433;
+      clip-path:polygon(22% 0,78% 0,100% 100%,80% 100%,65% 18%,35% 18%,20% 100%,0 100%);
+      opacity:.9;z-index:-1;
+    }
+    #impactLayer{position:absolute;inset:0;pointer-events:none}
+    .impact{
+      position:absolute;width:13px;height:13px;border-radius:50%;background:#f5f5f5;border:3px solid #1f2937;
+      transform:translate(-50%,-50%);box-shadow:0 0 0 2px rgba(255,255,255,.35);
+    }
+    .impact:after{
+      content:"";position:absolute;width:31px;height:4px;background:#513d31;border-radius:6px;
+      left:6px;top:2px;transform:rotate(-18deg);transform-origin:left center;
+    }
+    #crosshair{
+      position:absolute;z-index:11;left:50%;top:43%;width:64px;height:64px;transform:translate(-50%,-50%);
+      pointer-events:none;
+    }
+    #crosshair .ring{position:absolute;inset:8px;border:3px solid rgba(255,255,255,.94);border-radius:50%;box-shadow:0 0 0 1px rgba(0,0,0,.25)}
+    #crosshair .dot{position:absolute;left:50%;top:50%;width:8px;height:8px;border-radius:50%;background:#ff5252;transform:translate(-50%,-50%);box-shadow:0 0 0 2px rgba(255,255,255,.95)}
+    #crosshair .h,#crosshair .v{position:absolute;background:rgba(255,255,255,.92);box-shadow:0 0 0 1px rgba(0,0,0,.08)}
+    #crosshair .h{left:0;right:0;height:2px;top:50%}
+    #crosshair .v{top:0;bottom:0;width:2px;left:50%}
+    #bow{
+      position:absolute;z-index:10;left:-22px;top:31%;width:104px;height:255px;pointer-events:none;opacity:.9;
+    }
+    #bowCurve{
+      position:absolute;left:22px;top:0;width:66px;height:100%;border-right:8px solid #7b3f20;border-radius:0 75% 75% 0;
+      transform-origin:center;
+    }
+    #bowStringTop,#bowStringBottom{
+      position:absolute;left:86px;width:2px;background:#f7f0dc;transform-origin:left top;
+    }
+    #bowStringTop{top:3px;height:127px}
+    #bowStringBottom{top:127px;height:127px}
+    #arrowGhost{
+      position:absolute;left:51px;top:124px;width:120px;height:4px;background:linear-gradient(to right,#433326 0 88%,#dedede 88%);
+      transform-origin:0 50%;opacity:.2;border-radius:3px;
+    }
+    #statusPanel{
+      position:absolute;z-index:16;left:12px;right:12px;bottom:max(14px,env(safe-area-inset-bottom));
+      display:grid;gap:8px;pointer-events:none;
+    }
+    #gestureStatus{
+      justify-self:center;padding:8px 14px;border-radius:999px;border:1px solid var(--line);
+      background:rgba(10,18,28,.66);backdrop-filter:blur(9px);font-weight:800;font-size:14px;
+    }
+    #powerBox{
+      padding:10px 12px 11px;border-radius:16px;border:1px solid var(--line);background:rgba(10,18,28,.66);backdrop-filter:blur(9px);
+    }
+    #powerTop{display:flex;justify-content:space-between;font-size:12px;font-weight:800;margin-bottom:7px}
+    #powerTrack{height:13px;border-radius:999px;background:rgba(255,255,255,.16);overflow:hidden}
+    #powerFill{height:100%;width:0%;background:linear-gradient(to right,#74d680,#ffd84d,#ff875f);transition:width .07s linear}
+    #scoreFlash{
+      position:absolute;z-index:24;left:50%;top:31%;transform:translate(-50%,-50%) scale(.7);
+      font-size:54px;font-weight:950;opacity:0;text-shadow:0 4px 18px rgba(0,0,0,.35);pointer-events:none;
+    }
+    #scoreFlash.show{animation:scorePop .9s ease}
+    @keyframes scorePop{
+      0%{opacity:0;transform:translate(-50%,-50%) scale(.6)}
+      22%{opacity:1;transform:translate(-50%,-50%) scale(1.1)}
+      70%{opacity:1;transform:translate(-50%,-60%) scale(1)}
+      100%{opacity:0;transform:translate(-50%,-75%) scale(.95)}
+    }
+    #flyingArrow{
+      position:absolute;z-index:20;left:50%;top:72%;width:145px;height:5px;background:#5f4434;border-radius:5px;
+      transform:translate(-50%,-50%) scale(1.4);opacity:0;pointer-events:none;
+    }
+    #flyingArrow:after{content:"";position:absolute;right:-12px;top:-5px;border-left:14px solid #d9e0e5;border-top:7px solid transparent;border-bottom:7px solid transparent}
+    #flyingArrow.fly{animation:flyArrow .5s cubic-bezier(.18,.7,.2,1)}
+    @keyframes flyArrow{
+      0%{opacity:1;transform:translate(-50%,-50%) scale(1.5)}
+      100%{opacity:.9;transform:translate(-50%,-390%) scale(.18)}
+    }
+    .overlay{
+      position:absolute;z-index:40;inset:0;background:linear-gradient(180deg,rgba(10,24,38,.94),rgba(10,18,28,.97));
+      display:flex;align-items:center;justify-content:center;padding:24px;
+    }
+    .overlay.hidden{display:none}
+    .card{
+      width:min(100%,430px);max-height:92dvh;overflow:auto;padding:24px 20px;border-radius:26px;
+      border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.07);box-shadow:0 24px 80px rgba(0,0,0,.28);
+    }
+    .logo{font-size:46px;text-align:center;margin-bottom:5px}
+    h1{font-size:29px;line-height:1.05;text-align:center;margin:3px 0 8px}
+    .sub{text-align:center;opacity:.78;margin:0 0 22px;font-size:14px}
+    .steps{display:grid;gap:10px;margin:18px 0}
+    .step{display:grid;grid-template-columns:42px 1fr;gap:12px;align-items:center;padding:11px;border-radius:16px;background:rgba(255,255,255,.06)}
+    .step .ico{font-size:27px;text-align:center}
+    .step b{display:block;font-size:14px}
+    .step span{font-size:12px;opacity:.72}
+    .primary,.secondary{
+      width:100%;border:0;border-radius:16px;padding:14px 16px;font-weight:900;cursor:pointer;margin-top:8px;
+    }
+    .primary{background:#ffd84d;color:#17212b}
+    .secondary{background:rgba(255,255,255,.1);color:white;border:1px solid rgba(255,255,255,.12)}
+    .note{font-size:11px;line-height:1.55;opacity:.65;margin:12px 2px 0;text-align:center}
+    #setupMsg{font-size:13px;text-align:center;min-height:20px;color:#ffe78a;margin-top:8px}
+    #cameraBox{
+      position:relative;width:100%;aspect-ratio:4/3;border-radius:18px;overflow:hidden;background:#05080c;margin:14px 0;
+      border:1px solid rgba(255,255,255,.15);
+    }
+    #camera,#camCanvas{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
+    #camCanvas{pointer-events:none}
+    #calResult{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0}
+    .mini{padding:10px;border-radius:14px;background:rgba(255,255,255,.06);font-size:12px;text-align:center}
+    .mini b{display:block;font-size:14px;margin-top:2px}
+    #debug{
+      position:absolute;z-index:60;right:8px;top:88px;width:190px;padding:8px;border-radius:10px;
+      background:rgba(0,0,0,.72);font:11px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;display:none;pointer-events:none;
+    }
+    #debugCam{
+      position:absolute;z-index:59;right:8px;top:255px;width:150px;aspect-ratio:4/3;object-fit:cover;border:1px solid rgba(255,255,255,.5);
+      border-radius:10px;transform:scaleX(-1);display:none;background:#000;
+    }
+    #endScore{font-size:54px;font-weight:950;text-align:center;margin:15px 0 4px}
+    #endBreakdown{text-align:center;opacity:.72;font-size:13px}
+    .tinyBtn{
+      position:absolute;z-index:17;left:12px;top:92px;border:1px solid var(--line);color:#fff;background:rgba(10,18,28,.55);
+      border-radius:12px;padding:7px 9px;font-size:11px;display:none;
+    }
+    @media (min-width:700px){
+      #app{max-width:500px;margin:auto;box-shadow:0 0 60px rgba(0,0,0,.35)}
+      body{background:#07111c}
+    }
+  </style>
+</head>
+<body>
+<div id="app">
+  <div class="mountains"></div>
+  <div class="lane"></div>
+
+  <div class="hud">
+    <div class="pill">
+      <div class="label">ARROWS</div>
+      <div class="value" id="arrowCount">5 / 5</div>
+    </div>
+    <button id="recalibrate">🎯 重新校準</button>
+    <div class="pill" style="text-align:right">
+      <div class="label">SCORE</div>
+      <div class="value" id="score">0</div>
+    </div>
+  </div>
+
+  <div id="world">
+    <div id="targetWrap">
+      <div id="target">
+        <div id="impactLayer"></div>
+      </div>
+      <div id="stand"></div>
+    </div>
+  </div>
+
+  <div id="crosshair">
+    <div class="ring"></div><div class="h"></div><div class="v"></div><div class="dot"></div>
+  </div>
+
+  <div id="bow">
+    <div id="bowCurve"></div>
+    <div id="bowStringTop"></div><div id="bowStringBottom"></div>
+    <div id="arrowGhost"></div>
+  </div>
+
+  <div id="flyingArrow"></div>
+  <div id="scoreFlash">+10</div>
+
+  <div id="statusPanel">
+    <div id="gestureStatus">🤚 準備</div>
+    <div id="powerBox">
+      <div id="powerTop"><span>拉弓力度</span><span id="powerText">0%</span></div>
+      <div id="powerTrack"><div id="powerFill"></div></div>
+    </div>
+  </div>
+
+  <button id="desktopAimBtn" class="tinyBtn">桌面測試：移動滑鼠瞄準</button>
+
+  <div id="startOverlay" class="overlay">
+    <div class="card">
+      <div class="logo">🏹</div>
+      <h1>Gyro Archery</h1>
+      <p class="sub">手機體感射箭 · V1</p>
+      <div class="steps">
+        <div class="step"><div class="ico">📱</div><div><b>左手拿手機</b><span>像自拍一樣，把手機當成弓。</span></div></div>
+        <div class="step"><div class="ico">👊🏻</div><div><b>右手握拳並拉後</b><span>握拳代表捉住弓弦，向後拉增加力度。</span></div></div>
+        <div class="step"><div class="ico">🎯</div><div><b>轉動手機瞄準</b><span>準星固定，箭靶會隨手機方向移動。</span></div></div>
+        <div class="step"><div class="ico">🤚🏻</div><div><b>張開手掌放箭</b><span>只有成功拉弓後張開手掌才會射出。</span></div></div>
+      </div>
+      <button class="primary" id="startBtn">開始設定</button>
+      <div id="setupMsg"></div>
+      <p class="note">需要相機及動作感應器權限。鏡頭影像只在裝置上用作手勢辨認，不會上載或儲存。請確保周圍有足夠活動空間。</p>
+    </div>
+  </div>
+
+  <div id="calOverlay" class="overlay hidden">
+    <div class="card">
+      <h1 style="font-size:24px">設定你的射箭姿勢</h1>
+      <p class="sub">左手持機，讓右手出現在前置鏡頭。</p>
+      <div id="cameraBox">
+        <video id="camera" playsinline muted autoplay></video>
+        <canvas id="camCanvas"></canvas>
+      </div>
+      <div id="calResult">
+        <div class="mini">手勢<b id="calGesture">未偵測</b></div>
+        <div class="mini">鏡頭狀態<b id="calHand">等待右手</b></div>
+      </div>
+      <p id="calInstruction" style="text-align:center;font-weight:800">先試試 👊🏻 握拳，再張開 🤚🏻 手掌。</p>
+      <button class="primary" id="calibrateAimBtn">🎯 以目前方向設定為準星中心</button>
+      <button class="secondary" id="enterGameBtn">開始射箭</button>
+      <p class="note">提示：正式遊玩時，鏡頭預覽會隱藏。若辨識不到手，可回來重新設定。</p>
+    </div>
+  </div>
+
+  <div id="endOverlay" class="overlay hidden">
+    <div class="card">
+      <div class="logo">🎯</div>
+      <h1>本局完成</h1>
+      <div id="endScore">0 / 50</div>
+      <div id="endBreakdown">—</div>
+      <button class="primary" id="againBtn">再玩一次</button>
+      <button class="secondary" id="endCalBtn">重新校準</button>
+    </div>
+  </div>
+
+  <pre id="debug"></pre>
+  <video id="debugCam" playsinline muted autoplay></video>
+</div>
+
+<script type="module">
+import { GestureRecognizer, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest";
+
+const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task";
+
+const $ = (id) => document.getElementById(id);
+const app = $("app");
+const video = $("camera");
+const debugCam = $("debugCam");
+const canvas = $("camCanvas");
+const ctx = canvas.getContext("2d");
+
+let recognizer = null;
+let stream = null;
+let running = false;
+let gameActive = false;
+let debugMode = new URLSearchParams(location.search).get("debug") === "1";
+
+let rawGesture = "NONE";
+let stableGesture = "NONE";
+let gestureCandidate = "NONE";
+let candidateSince = 0;
+let gestureScore = 0;
+let handScale = 0;
+let lastHandSeen = 0;
+let latestLandmarks = null;
+let latestHandedness = "?";
+
+let drawState = "READY";
+let drawStart = 0;
+let initialHandScale = 0;
+let maxPower = 0;
+let power = 0;
+let shotLock = false;
+
+let score = 0;
+let arrowsLeft = 5;
+let shotScores = [];
+let impacts = [];
+
+let orientation = { alpha: null, beta: null, gamma: null, t: 0 };
+let smoothOrientation = { alpha: null, beta: null };
+let neutral = { alpha: null, beta: null };
+let targetOffset = { x: 0, y: 0 };
+let desktopAim = { x: 0, y: 0 };
+let desktopFallback = false;
+
+const STABLE_MS = 180;
+const LOST_HAND_MS = 700;
+const MIN_SHOOT_POWER = 30;
+const HORIZONTAL_SENS = 8.0;
+const VERTICAL_SENS = 7.0;
+
+function clamp(v,min,max){ return Math.max(min, Math.min(max,v)); }
+function lerp(a,b,t){ return a + (b-a)*t; }
+function angleDiff(a,b){
+  let d = a-b;
+  while(d > 180) d -= 360;
+  while(d < -180) d += 360;
+  return d;
+}
+
+async function requestMotionPermission(){
+  try{
+    if(typeof DeviceOrientationEvent !== "undefined" &&
+       typeof DeviceOrientationEvent.requestPermission === "function"){
+      const p = await DeviceOrientationEvent.requestPermission();
+      if(p !== "granted") throw new Error("動作感應器權限被拒絕");
+    }
+    window.addEventListener("deviceorientation", onOrientation, true);
+    return true;
+  }catch(err){
+    console.warn(err);
+    desktopFallback = true;
+    $("desktopAimBtn").style.display = "block";
+    return false;
+  }
+}
+
+function onOrientation(e){
+  if(e.alpha == null || e.beta == null) return;
+  orientation.alpha = e.alpha;
+  orientation.beta = e.beta;
+  orientation.gamma = e.gamma;
+  orientation.t = performance.now();
+
+  if(smoothOrientation.alpha == null){
+    smoothOrientation.alpha = e.alpha;
+    smoothOrientation.beta = e.beta;
+  }else{
+    const da = angleDiff(e.alpha, smoothOrientation.alpha);
+    smoothOrientation.alpha = (smoothOrientation.alpha + da * 0.15 + 360) % 360;
+    smoothOrientation.beta = lerp(smoothOrientation.beta, e.beta, 0.15);
+  }
+}
+
+async function initCamera(){
+  stream = await navigator.mediaDevices.getUserMedia({
+    video:{
+      facingMode:"user",
+      width:{ideal:640},
+      height:{ideal:480},
+      frameRate:{ideal:24,max:30}
+    },
+    audio:false
+  });
+  video.srcObject = stream;
+  debugCam.srcObject = stream;
+  await video.play();
+}
+
+async function initRecognizer(){
+  const vision = await FilesetResolver.forVisionTasks(
+    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm"
+  );
+  recognizer = await GestureRecognizer.createFromOptions(vision,{
+    baseOptions:{ modelAssetPath: MODEL_URL },
+    runningMode:"VIDEO",
+    numHands:2,
+    minHandDetectionConfidence:0.55,
+    minHandPresenceConfidence:0.55,
+    minTrackingConfidence:0.5,
+    cannedGesturesClassifierOptions:{
+      scoreThreshold:0.55,
+      categoryAllowlist:["Closed_Fist","Open_Palm"]
+    }
+  });
+}
+
+function chooseBestHand(result){
+  if(!result || !result.gestures || !result.gestures.length) return null;
+  let best = null;
+  for(let i=0;i<result.gestures.length;i++){
+    const g = result.gestures[i]?.[0];
+    if(!g) continue;
+    const name = g.categoryName;
+    if(name !== "Closed_Fist" && name !== "Open_Palm") continue;
+    if(!best || g.score > best.score){
+      best = {
+        name,
+        score:g.score,
+        landmarks:result.landmarks?.[i] || null,
+        handedness:result.handedness?.[i]?.[0]?.displayName || "?"
+      };
+    }
+  }
+  return best;
+}
+
+function calcHandScale(lm){
+  if(!lm || !lm.length) return 0;
+  let minX=1,minY=1,maxX=0,maxY=0;
+  for(const p of lm){
+    minX=Math.min(minX,p.x); minY=Math.min(minY,p.y);
+    maxX=Math.max(maxX,p.x); maxY=Math.max(maxY,p.y);
+  }
+  const w=maxX-minX, h=maxY-minY;
+  return Math.sqrt(Math.max(0.00001,w*h));
+}
+
+function updateStableGesture(now){
+  if(rawGesture !== gestureCandidate){
+    gestureCandidate = rawGesture;
+    candidateSince = now;
+    return;
+  }
+  if(now - candidateSince >= STABLE_MS && stableGesture !== gestureCandidate){
+    stableGesture = gestureCandidate;
+    onStableGestureChanged(stableGesture, now);
+  }
+}
+
+function onStableGestureChanged(g, now){
+  if(!gameActive || shotLock) return;
+
+  if(g === "FIST"){
+    if(drawState === "READY"){
+      drawState = "DRAWING";
+      drawStart = now;
+      initialHandScale = handScale || 0.18;
+      power = 0;
+      maxPower = 0;
+      setStatus("👊 拉弓中…");
+    }
+  }else if(g === "OPEN"){
+    if(drawState === "ARMED"){
+      shootArrow();
+    }else if(drawState === "DRAWING"){
+      cancelDraw("🤚 拉力不足，重新握拳");
+    }else if(drawState === "READY"){
+      setStatus("🤚 準備");
+    }
+  }
+}
+
+function cancelDraw(msg="🤚 準備"){
+  drawState="READY";
+  power=0;
+  maxPower=0;
+  drawStart=0;
+  initialHandScale=0;
+  setPower(0);
+  setStatus(msg);
+}
+
+function updateDrawPower(now){
+  if(drawState !== "DRAWING" && drawState !== "ARMED") return;
+
+  const elapsed = now - drawStart;
+  let distancePower = 0;
+
+  if(initialHandScale > 0 && handScale > 0){
+    const shrink = (initialHandScale - handScale) / initialHandScale;
+    distancePower = clamp((shrink / 0.34) * 100, 0, 100);
+  }
+
+  // 寬鬆 fallback：持續穩定握拳亦會慢慢建立最低力度，避免不同鏡頭令深度估算完全失效。
+  const timeFallback = clamp((elapsed - 450) / 18, 0, 68);
+  power = Math.max(distancePower, timeFallback);
+  maxPower = Math.max(maxPower, power);
+  power = maxPower;
+  setPower(power);
+
+  if(power >= MIN_SHOOT_POWER){
+    drawState = "ARMED";
+    setStatus("🏹 已拉弓 — 張開手掌放箭");
+  }else{
+    setStatus("👊 拉弓中…");
+  }
+
+  // 手部離開畫面不視為放箭。
+  if(now - lastHandSeen > LOST_HAND_MS){
+    cancelDraw("✋ 看不到手，請重新開始");
+  }
+}
+
+function setPower(v){
+  const n = clamp(v,0,100);
+  $("powerFill").style.width = `${n}%`;
+  $("powerText").textContent = `${Math.round(n)}%`;
+
+  const pull = n/100;
+  const topAngle = 10 + pull*18;
+  const bottomAngle = -10 - pull*18;
+  $("bowStringTop").style.transform = `rotate(${topAngle}deg)`;
+  $("bowStringBottom").style.transform = `rotate(${bottomAngle}deg)`;
+  $("arrowGhost").style.opacity = `${0.18 + pull*0.62}`;
+  $("arrowGhost").style.transform = `translateX(${-pull*22}px)`;
+}
+
+function setStatus(s){ $("gestureStatus").textContent = s; }
+
+function calibrateAim(){
+  if(smoothOrientation.alpha != null){
+    neutral.alpha = smoothOrientation.alpha;
+    neutral.beta = smoothOrientation.beta;
+    desktopAim.x = 0; desktopAim.y=0;
+    $("calibrateAimBtn").textContent = "✓ 已設定準星中心";
+    setTimeout(()=> $("calibrateAimBtn").textContent = "🎯 以目前方向設定為準星中心",1200);
+  }else{
+    neutral.alpha = 0; neutral.beta = 0;
+    desktopFallback = true;
+    $("desktopAimBtn").style.display = "block";
+  }
+}
+
+function updateAim(){
+  const w = app.clientWidth, h = app.clientHeight;
+
+  const sensorFresh = performance.now() - orientation.t < 1200;
+  if(sensorFresh && neutral.alpha != null){
+    const dx = angleDiff(smoothOrientation.alpha, neutral.alpha);
+    const dy = smoothOrientation.beta - neutral.beta;
+    targetOffset.x = clamp(-dx * HORIZONTAL_SENS, -w*0.55, w*0.55);
+    targetOffset.y = clamp(dy * VERTICAL_SENS, -h*0.30, h*0.30);
+  }else if(desktopFallback){
+    targetOffset.x = desktopAim.x;
+    targetOffset.y = desktopAim.y;
+  }
+
+  const target = $("targetWrap");
+  target.style.left = `calc(50% + ${targetOffset.x}px)`;
+  target.style.top = `calc(43% + ${targetOffset.y}px)`;
+}
+
+function scoreFromHit(hitX,hitY){
+  const r = Math.sqrt(hitX*hitX + hitY*hitY);
+  if(r > 1) return 0;
+  return clamp(10 - Math.floor(r*10),1,10);
+}
+
+function shootArrow(){
+  if(shotLock || arrowsLeft <= 0) return;
+  shotLock = true;
+
+  const targetRect = $("target").getBoundingClientRect();
+  const cx = app.clientWidth/2;
+  const cy = app.clientHeight*0.43;
+  const tx = targetRect.left + targetRect.width/2;
+  const ty = targetRect.top + targetRect.height/2;
+  const radius = targetRect.width/2;
+
+  // 準星相對箭靶的命中位置；低力度加入少量下墜。
+  const drop = clamp((65-power)/65,0,1) * targetRect.height * 0.10;
+  const hitX = (cx - tx) / radius;
+  const hitY = (cy + drop - ty) / radius;
+  const shotScore = scoreFromHit(hitX,hitY);
+
+  const arrow = $("flyingArrow");
+  arrow.classList.remove("fly");
+  void arrow.offsetWidth;
+  arrow.classList.add("fly");
+
+  if(navigator.vibrate) navigator.vibrate(35);
+
+  setTimeout(()=>{
+    impacts.push({x:hitX,y:hitY,score:shotScore});
+    renderImpacts();
+
+    score += shotScore;
+    arrowsLeft--;
+    shotScores.push(shotScore);
+    $("score").textContent = score;
+    $("arrowCount").textContent = `${arrowsLeft} / 5`;
+    flashScore(shotScore);
+
+    drawState="READY";
+    power=0;maxPower=0;drawStart=0;initialHandScale=0;
+    setPower(0);
+    setStatus("🤚 準備");
+
+    setTimeout(()=>{
+      shotLock=false;
+      if(arrowsLeft <= 0) endGame();
+    },700);
+  },430);
+}
+
+function renderImpacts(){
+  const layer = $("impactLayer");
+  layer.innerHTML="";
+  for(const p of impacts){
+    if(Math.sqrt(p.x*p.x+p.y*p.y) > 1.06) continue;
+    const el=document.createElement("div");
+    el.className="impact";
+    el.style.left=`${50 + p.x*50}%`;
+    el.style.top=`${50 + p.y*50}%`;
+    layer.appendChild(el);
+  }
+}
+
+function flashScore(s){
+  const f=$("scoreFlash");
+  f.textContent = s > 0 ? `+${s}` : "MISS";
+  f.classList.remove("show");
+  void f.offsetWidth;
+  f.classList.add("show");
+}
+
+function endGame(){
+  gameActive=false;
+  $("endScore").textContent = `${score} / 50`;
+  $("endBreakdown").textContent = shotScores.map((s,i)=>`第 ${i+1} 箭：${s}分`).join("　");
+  $("endOverlay").classList.remove("hidden");
+}
+
+function resetGame(){
+  score=0;arrowsLeft=5;shotScores=[];impacts=[];
+  stableGesture="NONE"; gestureCandidate=rawGesture; candidateSince=performance.now();
+  $("score").textContent="0";
+  $("arrowCount").textContent="5 / 5";
+  renderImpacts();
+  cancelDraw();
+  shotLock=false;
+  gameActive=true;
+}
+
+function drawCameraOverlay(){
+  if(video.videoWidth === 0) return;
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  if(!latestLandmarks) return;
+
+  ctx.save();
+  // canvas element itself is mirrored via CSS; draw coordinates in raw image space.
+  ctx.fillStyle="#ffd84d";
+  for(const p of latestLandmarks){
+    ctx.beginPath();
+    ctx.arc(p.x*canvas.width,p.y*canvas.height,4,0,Math.PI*2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+let lastVideoTime = -1;
+let lastInference = 0;
+function processCamera(now){
+  if(!recognizer || !video.videoWidth || video.readyState < 2) return;
+  if(now - lastInference < 66) return; // 約 15 FPS，減低手機負荷
+  if(video.currentTime === lastVideoTime) return;
+
+  lastInference = now;
+  lastVideoTime = video.currentTime;
+
+  try{
+    const result = recognizer.recognizeForVideo(video, now);
+    const best = chooseBestHand(result);
+
+    if(best){
+      rawGesture = best.name === "Closed_Fist" ? "FIST" : "OPEN";
+      gestureScore = best.score;
+      latestLandmarks = best.landmarks;
+      latestHandedness = best.handedness;
+      handScale = calcHandScale(best.landmarks);
+      lastHandSeen = now;
+      $("calHand").textContent = "✓ 已偵測";
+    }else{
+      rawGesture = "NONE";
+      gestureScore = 0;
+      latestLandmarks = null;
+      handScale = 0;
+      $("calHand").textContent = "未找到";
+    }
+
+    $("calGesture").textContent =
+      rawGesture === "FIST" ? "👊🏻 握拳" :
+      rawGesture === "OPEN" ? "🤚🏻 張開" : "—";
+
+    updateStableGesture(now);
+    drawCameraOverlay();
+  }catch(err){
+    console.warn("Gesture inference error",err);
+  }
+}
+
+function updateDebug(){
+  if(!debugMode) return;
+  $("debug").textContent =
+`gesture(raw): ${rawGesture}
+gesture(stable): ${stableGesture}
+confidence: ${gestureScore.toFixed(2)}
+handedness: ${latestHandedness}
+handScale: ${handScale.toFixed(3)}
+state: ${drawState}
+power: ${power.toFixed(0)}%
+alpha: ${orientation.alpha?.toFixed?.(1) ?? "-"}
+beta: ${orientation.beta?.toFixed?.(1) ?? "-"}
+neutral α: ${neutral.alpha?.toFixed?.(1) ?? "-"}
+neutral β: ${neutral.beta?.toFixed?.(1) ?? "-"}
+target X: ${targetOffset.x.toFixed(0)}
+target Y: ${targetOffset.y.toFixed(0)}
+arrows: ${arrowsLeft}`;
+}
+
+function loop(now){
+  if(running){
+    processCamera(now);
+    if(gameActive) updateDrawPower(now);
+    updateAim();
+    updateDebug();
+  }
+  requestAnimationFrame(loop);
+}
+
+$("startBtn").addEventListener("click",async()=>{
+  const msg=$("setupMsg");
+  $("startBtn").disabled=true;
+  try{
+    msg.textContent="正在要求動作感應器權限…";
+    await requestMotionPermission();
+
+    msg.textContent="正在啟動前置鏡頭…";
+    await initCamera();
+
+    msg.textContent="正在載入手勢辨識模型…";
+    await initRecognizer();
+
+    running=true;
+    $("startOverlay").classList.add("hidden");
+    $("calOverlay").classList.remove("hidden");
+    msg.textContent="";
+  }catch(err){
+    console.error(err);
+    msg.textContent="設定失敗：" + (err?.message || "請檢查相機權限及 HTTPS。");
+    $("startBtn").disabled=false;
+  }
+});
+
+$("calibrateAimBtn").addEventListener("click",calibrateAim);
+
+$("enterGameBtn").addEventListener("click",()=>{
+  if(neutral.alpha == null && !desktopFallback) calibrateAim();
+  $("calOverlay").classList.add("hidden");
+  resetGame();
+});
+
+$("recalibrate").addEventListener("click",()=>{
+  gameActive=false;
+  cancelDraw();
+  $("calOverlay").classList.remove("hidden");
+});
+
+$("againBtn").addEventListener("click",()=>{
+  $("endOverlay").classList.add("hidden");
+  resetGame();
+});
+
+$("endCalBtn").addEventListener("click",()=>{
+  $("endOverlay").classList.add("hidden");
+  $("calOverlay").classList.remove("hidden");
+});
+
+app.addEventListener("pointermove",(e)=>{
+  const sensorFresh = performance.now() - orientation.t < 1200;
+  if(sensorFresh || !desktopFallback) return;
+  const rect=app.getBoundingClientRect();
+  desktopAim.x = clamp((e.clientX-rect.left-rect.width/2)*0.75,-rect.width*.48,rect.width*.48);
+  desktopAim.y = clamp((e.clientY-rect.top-rect.height*.43)*0.55,-rect.height*.28,rect.height*.28);
+});
+
+$("desktopAimBtn").addEventListener("click",()=>{
+  desktopFallback=true;
+});
+
+if(debugMode){
+  $("debug").style.display="block";
+  $("debugCam").style.display="block";
+}
+
+document.addEventListener("visibilitychange",()=>{
+  if(document.hidden && gameActive && drawState !== "READY") cancelDraw();
+});
+
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
