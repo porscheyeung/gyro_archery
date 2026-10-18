@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
   <meta name="theme-color" content="#183a4b" />
-  <title>Gyro Archery V2</title>
+  <title>Gyro Archery V2.1</title>
   <style>
     :root{
       --glass: rgba(12, 27, 38, .68);
@@ -42,7 +42,7 @@
       background:radial-gradient(circle at 74% 18%,rgba(255,255,255,.42),transparent 24%);
     }
     .hills{
-      position:absolute;left:-12%;right:-12%;top:34%;height:30%;opacity:.23;pointer-events:none;
+      position:absolute;left:-18%;right:-18%;top:34%;height:30%;opacity:.23;pointer-events:none;will-change:transform;
       background:
         linear-gradient(145deg,transparent 0 26%,#325e51 26% 51%,transparent 51%) 0 0/46% 100% repeat-x;
     }
@@ -50,7 +50,7 @@
       position:absolute;left:50%;bottom:-16%;width:76%;height:60%;transform:translateX(-50%);
       background:linear-gradient(to bottom,rgba(227,208,147,.36),rgba(182,148,77,.62));
       clip-path:polygon(38% 0,62% 0,100% 100%,0 100%);
-      pointer-events:none;
+      pointer-events:none;will-change:transform;
     }
 
     /* HUD */
@@ -94,7 +94,7 @@
       width:clamp(152px,44vw,210px);
       aspect-ratio:1;
       transform:translate(-50%,-50%);
-      will-change:left,top;
+      will-change:transform;
       filter:drop-shadow(0 13px 11px rgba(0,0,0,.23));
     }
     #target{
@@ -322,6 +322,7 @@
       border-radius:9px;border:1px solid rgba(255,255,255,.45);display:none;background:#000;
     }
 
+    @media (max-height:690px){#targetWrap{width:clamp(135px,35vw,175px)}#bottomPanel{gap:5px}#powerCard{padding:8px 10px}#gesturePill{padding:6px 11px}}
     @media (min-width:700px){
       body{background:#07111c}
       #app{max-width:500px;margin:auto;box-shadow:0 0 65px rgba(0,0,0,.38)}
@@ -379,8 +380,8 @@
   <div id="startOverlay" class="overlay">
     <div class="card">
       <div class="logo">🏹</div>
-      <h1>Gyro Archery V2</h1>
-      <p class="sub">穩定操作版：手機瞄準 + 握拳拉弓 + 放掌射箭</p>
+      <h1>Gyro Archery V2.1</h1>
+      <p class="sub">低延遲優化版：穩定瞄準 + 握拳拉弓 + 放掌射箭</p>
 
       <div class="steps">
         <div class="step"><div class="ico">📱</div><div><b>左手拿手機</b><span>像自拍一樣，用手機方向控制準星。</span></div></div>
@@ -410,7 +411,7 @@
       </div>
 
       <button class="primary" id="calibrateAimBtn">🎯 以目前方向設定為準星中心</button>
-      <div id="aimState">尚未設定準星中心</div>
+      <div id="aimState">尚未設定準星中心</div><div id="calTip" class="note">請做 3 次「握拳 → 放掌」測試，完成後再開始。</div>
 
       <div class="sensWrap">
         <div class="sensTitle">瞄準靈敏度</div>
@@ -421,7 +422,7 @@
         </div>
       </div>
 
-      <button class="secondary" id="enterGameBtn">開始射箭</button>
+      <button class="secondary" id="enterGameBtn" disabled>手勢測試 0 / 3</button>
       <p class="note">如果之後覺得瞄準偏移，遊戲中可直接按「🎯 置中」。</p>
     </div>
   </div>
@@ -450,653 +451,277 @@
 </div>
 
 <script type="module">
-import { GestureRecognizer, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest";
+import {GestureRecognizer,FilesetResolver} from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.1.1/+esm';
+const MODEL='https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task';
+const BASE='https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.1.1/wasm';
+const $=id=>document.getElementById(id), app=$('app'),video=$('camera'),debugCam=$('debugCam');
+const debugMode=new URLSearchParams(location.search).get('debug')==='1';
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const wrap=(a,b)=>((a-b+540)%360)-180;
+const tnow=()=>performance.now();
+const config={fistMs:150,openMs:115,lostPauseMs:230,lostCancelMs:700,fullDrawMs:800,minPower:30};
+let active=false,running=false,paused=false,shotLock=false;
+let score=0,arrowsLeft=5,scores=[],impacts=[];
+let track=null,raw='UNKNOWN',stable='UNKNOWN',candidate='UNKNOWN',candidateSince=0,lastSeen=0,lastValid=0;
+let draw='READY',drawElapsed=0,lastDrawUpdate=0,power=0,fullBuzz=false,requiresFreshFist=true;
+let calibratedFist=false,calibratedOpen=false,calCount=0,calPhase='FIST';
+let sensor={alpha:null,beta:null,gamma:null,ts:0},neutral={alpha:null,beta:null},target={x:0,y:0},desired={x:0,y:0};
+let smooth={alpha:null,beta:null},lastAimTs=0,sensitivity='low';
+let worker=null,engine=null,workerOn=false,frameBusy=false,frameSeq=0,lastFrame=0,lastFrameTime=-1;
+let inferenceMs=0,inferenceFps=0,measureN=0,measureStart=tnow(),renderN=0,renderFps=0,renderStart=tnow(),lastShotLatency=0;
+const strengths={low:[2.35,2.0],normal:[3.1,2.6],high:[3.85,3.2]};
 
-const MODEL_URL =
-  "https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task";
-
-const $ = (id) => document.getElementById(id);
-const app = $("app");
-const video = $("camera");
-const debugCam = $("debugCam");
-
-const debugMode = new URLSearchParams(location.search).get("debug") === "1";
-
-// ---------- helpers ----------
-const clamp = (v,min,max) => Math.max(min,Math.min(max,v));
-const lerp = (a,b,t) => a + (b-a)*t;
-
-function angleDiff(a,b){
-  let d = a-b;
-  while(d > 180) d -= 360;
-  while(d < -180) d += 360;
-  return d;
+function status(s){$('gesturePill').textContent=s;}
+function setPower(v){power=clamp(v,0,100);$('powerFill').style.width=power+'%';$('powerText').textContent=Math.round(power)+'%';}
+function resetTracking(){track=null;raw=stable=candidate='UNKNOWN';candidateSince=0;requiresFreshFist=true;}
+function cancel(msg='🤚 準備') {draw='READY';drawElapsed=0;lastDrawUpdate=0;fullBuzz=false;setPower(0);status(msg);requiresFreshFist=true;}
+function orientationInput(e){
+ if(e.alpha==null||e.beta==null)return;
+ sensor={alpha:e.alpha,beta:e.beta,gamma:e.gamma,ts:tnow()};
+ if(smooth.alpha==null){smooth.alpha=e.alpha;smooth.beta=e.beta;}
 }
-
-function applyDeadZone(v, zone){
-  if(Math.abs(v) <= zone) return 0;
-  return Math.sign(v) * (Math.abs(v)-zone);
+async function permission(){
+ if(typeof DeviceOrientationEvent==='undefined')throw Error('此瀏覽器沒有提供動作感應器。');
+ // iOS permission must be requested directly in a click task (before asynchronous camera/model work).
+ if(typeof DeviceOrientationEvent.requestPermission==='function'){
+  const p=await DeviceOrientationEvent.requestPermission();if(p!=='granted')throw Error('未取得動作感應器權限。');
+ }
+ window.addEventListener('deviceorientation',orientationInput,true);
 }
-
-// ---------- app state ----------
-let recognizer = null;
-let stream = null;
-let running = false;
-let gameActive = false;
-let pausedForRotate = false;
-
-let score = 0;
-let arrowsLeft = 5;
-let shotScores = [];
-let impacts = [];
-let shotLock = false;
-
-// ---------- gesture state ----------
-let rawGesture = "UNKNOWN";      // OPEN / CLOSED / UNKNOWN
-let stableGesture = "UNKNOWN";
-let candidateGesture = "UNKNOWN";
-let candidateSince = 0;
-let gestureConfidence = 0;
-
-let anyHandSeen = false;
-let lastAnyHandSeen = 0;
-let fistSeenInCalibration = false;
-let openSeenInCalibration = false;
-
-const CLOSED_STABLE_MS = 180;
-const OPEN_STABLE_MS = 120;
-const HAND_LOST_CANCEL_MS = 700;
-
-// ---------- draw state ----------
-let drawState = "READY";         // READY / DRAWING / ARMED
-let drawStartTime = 0;
-let power = 0;
-let fullDrawBuzzed = false;
-
-const MIN_SHOOT_POWER = 30;
-const FULL_DRAW_MS = 800;
-
-// ---------- gyro state ----------
-let orientation = { alpha:null, beta:null, gamma:null, t:0 };
-let filtered = { alpha:null, beta:null };
-let neutral = { alpha:null, beta:null };
-
-let desiredTarget = { x:0, y:0 };
-let displayedTarget = { x:0, y:0 };
-
-const DEAD_ZONE_DEG = 1.25;
-const SENSOR_EMA = 0.08;
-const MAX_MOVE_PER_FRAME = 3.4;
-
-const sensitivityProfiles = {
-  low:    { h:2.4, v:2.0 },
-  normal: { h:3.0, v:2.5 },
-  high:   { h:3.6, v:3.0 }
-};
-let sensitivityKey = "low";
-
-// ---------- permissions ----------
-async function requestMotionPermission(){
-  if(typeof DeviceOrientationEvent === "undefined"){
-    throw new Error("此瀏覽器不支援 DeviceOrientation。");
+async function camera(){
+ const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:640},height:{ideal:480},frameRate:{ideal:20,max:24}},audio:false});
+ video.srcObject=stream;debugCam.srcObject=stream;await video.play();
+}
+async function buildMainEngine(){
+ const files=await FilesetResolver.forVisionTasks(BASE);
+ engine=await GestureRecognizer.createFromOptions(files,{baseOptions:{modelAssetPath:MODEL},runningMode:'VIDEO',numHands:2,minHandDetectionConfidence:.48,minHandPresenceConfidence:.48,minTrackingConfidence:.45});
+}
+async function initRecognition(){
+ // Worker is optional. If initialization or browser support fails, fall back to throttled main thread inference.
+ try{
+  if(!window.Worker||!window.createImageBitmap)throw Error('Worker/ImageBitmap unavailable');
+  worker=new Worker(new URL('./gesture-worker.js',import.meta.url),{type:'module'});
+  await Promise.race([
+   new Promise((resolve,reject)=>{
+    const timeout=setTimeout(()=>reject(Error('Worker initialization timed out')),12000);
+    worker.onmessage=e=>{
+     const m=e.data;
+     if(m.type==='ready'){clearTimeout(timeout);workerOn=true;resolve();}
+     else if(m.type==='error'){clearTimeout(timeout);reject(Error(m.error));}
+     else handleWorker(m);
+    };
+    worker.onerror=e=>{clearTimeout(timeout);reject(Error(e.message||'Worker error'));};
+    worker.postMessage({type:'init'});
+   })
+  ]);
+ }catch(e){
+  console.warn('Worker unavailable, switching to main-thread fallback:',e);
+  if(worker){worker.terminate();worker=null;}workerOn=false;
+  await buildMainEngine();
+ }
+}
+function handleWorker(m){
+ if(m.type==='result'){
+  frameBusy=false;
+  if(tnow()-m.ts > 330)return; // Discard stale camera results; NEVER release from old frames.
+  inferenceMs=m.elapsed;countInference();ingest(m.hands,m.ts);
+ }else if(m.type==='frameError'){
+  frameBusy=false;console.warn(m.error);
+ }
+}
+function countInference(){measureN++;if(tnow()-measureStart>=1000){inferenceFps=measureN*1000/(tnow()-measureStart);measureStart=tnow();measureN=0;}}
+function chooseHand(hands,ts){
+ if(!hands.length)return null;
+ // Track the selected hand continuously, rather than taking the top confidence each frame.
+ if(track){
+  let nearest=hands.map(h=>({h,d:Math.hypot(h.x-track.x,h.y-track.y)})).sort((a,b)=>a.d-b.d)[0];
+  if(nearest && nearest.d<.24)return nearest.h;
+  if(ts-lastSeen < config.lostCancelMs)return null;
+ }
+ // Prioritize right-handed label; handedness from front-facing cameras varies, so calibration controls final selection.
+ // Fallback to a confident hand if no right-hand label is returned.
+ const list=hands.filter(h=>h.label!=='UNKNOWN');
+ if(!list.length)return null;
+ return list.sort((a,b)=>b.confidence-a.confidence)[0];
+}
+function ingest(hands,ts){
+ if(!running)return;
+ const chosen=chooseHand(hands,ts);
+ if(!chosen){
+  raw='UNKNOWN';candidate='UNKNOWN';candidateSince=0;
+  // Preserve stable state only for short interruptions, never permit a release on missing hands.
+  if(ts-lastSeen>config.lostCancelMs){stable='UNKNOWN';track=null;}
+  updateCameraStatus();return;
+ }
+ track={x:chosen.x,y:chosen.y,handedness:chosen.handedness};lastSeen=ts;
+ raw=chosen.confidence>=.49 ? (chosen.label==='Closed_Fist'?'CLOSED':chosen.label==='Open_Palm'?'OPEN':'UNKNOWN'):'UNKNOWN';
+ if(raw==='UNKNOWN'){candidate='UNKNOWN';candidateSince=0;updateCameraStatus();return;}
+ if(candidate!==raw){candidate=raw;candidateSince=ts;}
+ const ms=raw==='CLOSED'?config.fistMs:config.openMs;
+ if(ts-candidateSince>=ms && stable!==raw){
+  // Don't treat the first open hand after tracking loss as a valid release.
+  if(raw==='OPEN' && ts-lastValid>config.lostPauseMs && draw!=='READY'){cancel('✋ 請重新握拳');}
+  stable=raw;gestureChanged(raw,ts);
+ }
+ lastValid=ts;
+ updateCameraStatus();
+}
+function gestureChanged(g,ts){
+ if(!active||paused||shotLock){calibrationGesture(g);return;}
+ if(g==='CLOSED'){
+  if(draw==='READY'){
+   draw='DRAWING';drawElapsed=0;lastDrawUpdate=ts;requiresFreshFist=false;fullBuzz=false;status('👊 拉弓中…');
   }
-
-  if(typeof DeviceOrientationEvent.requestPermission === "function"){
-    const result = await DeviceOrientationEvent.requestPermission();
-    if(result !== "granted"){
-      throw new Error("動作感應器權限被拒絕。");
-    }
+ }else if(g==='OPEN'){
+  if(draw==='ARMED' && !requiresFreshFist){lastShotLatency=tnow()-ts;shoot();}
+  else if(draw==='DRAWING')cancel('🤚 拉力不足，重新握拳');
+  else status('🤚 準備');
+ }
+}
+function calibrationGesture(g){
+ if(!$('calOverlay').classList.contains('hidden')){
+  if(g==='CLOSED')calibratedFist=true;
+  if(g==='OPEN')calibratedOpen=true;
+  if(g===calPhase){
+   if(g==='FIST')return;
   }
-
-  window.addEventListener("deviceorientation", onOrientation, true);
-}
-
-function onOrientation(e){
-  if(e.alpha == null || e.beta == null) return;
-
-  orientation.alpha = e.alpha;
-  orientation.beta = e.beta;
-  orientation.gamma = e.gamma;
-  orientation.t = performance.now();
-
-  if(filtered.alpha == null){
-    filtered.alpha = e.alpha;
-    filtered.beta = e.beta;
-    return;
+  if(calPhase==='FIST'&&g==='CLOSED')calPhase='OPEN';
+  else if(calPhase==='OPEN'&&g==='OPEN'){
+   calCount=Math.min(3,calCount+1);calPhase='FIST';
   }
-
-  const da = angleDiff(e.alpha, filtered.alpha);
-  filtered.alpha = (filtered.alpha + da * SENSOR_EMA + 360) % 360;
-  filtered.beta = lerp(filtered.beta, e.beta, SENSOR_EMA);
+  updateCameraStatus();
+ }
 }
-
-// ---------- camera + MediaPipe ----------
-async function initCamera(){
-  stream = await navigator.mediaDevices.getUserMedia({
-    video:{
-      facingMode:"user",
-      width:{ideal:640},
-      height:{ideal:480},
-      frameRate:{ideal:20,max:24}
-    },
-    audio:false
-  });
-
-  video.srcObject = stream;
-  debugCam.srcObject = stream;
-  await video.play();
+function updateCameraStatus(){
+ const shown=raw==='CLOSED'?'👊🏻 CLOSED':raw==='OPEN'?'🤚🏻 OPEN':track?'✋ 手勢不明確':'✋ 請讓右手進入鏡頭';
+ $('gestureBadge').textContent=shown;
+ $('fistTest').textContent=calibratedFist?'✓ 已辨認':'👊🏻 未完成';
+ $('openTest').textContent=calibratedOpen?'✓ 已辨認':'🤚🏻 未完成';
+ $('fistTest').classList.toggle('ok',calibratedFist);$('openTest').classList.toggle('ok',calibratedOpen);
+ $('calTip').textContent=`握拳 → 放掌測試：${calCount} / 3 次${calCount===3?' ✓':''}`;
+ $('enterGameBtn').disabled=calCount<3;
+ $('enterGameBtn').textContent=calCount===3?'開始射箭':`手勢測試 ${calCount} / 3`;
 }
-
-async function initRecognizer(){
-  const vision = await FilesetResolver.forVisionTasks(
-    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm"
-  );
-
-  recognizer = await GestureRecognizer.createFromOptions(vision,{
-    baseOptions:{modelAssetPath:MODEL_URL},
-    runningMode:"VIDEO",
-    numHands:2,
-    minHandDetectionConfidence:0.48,
-    minHandPresenceConfidence:0.48,
-    minTrackingConfidence:0.45,
-    cannedGesturesClassifierOptions:{
-      scoreThreshold:0.48,
-      categoryAllowlist:["Closed_Fist","Open_Palm"]
-    }
-  });
+function updateDraw(ts){
+ if(draw!=='DRAWING' && draw!=='ARMED')return;
+ const lost=ts-lastSeen;
+ if(lost>config.lostCancelMs){cancel('✋ 找不到右手，請重新握拳');resetTracking();return;}
+ if(lost>config.lostPauseMs){lastDrawUpdate=ts;status('✋ 追蹤暫停…');return;}
+ const dt=Math.max(0,Math.min(50,ts-lastDrawUpdate));lastDrawUpdate=ts;
+ if(stable==='CLOSED'||raw==='CLOSED'){drawElapsed+=dt;}
+ setPower(drawElapsed/config.fullDrawMs*100);
+ if(power>=config.minPower)draw='ARMED';
+ if(draw==='ARMED')status(power>=100?'🏹 FULL DRAW — 放掌射箭':'🏹 已拉弓 — 放掌射箭');
+ else status('👊 拉弓中…');
+ if(power>=100&&!fullBuzz){fullBuzz=true;$('powerCard').classList.remove('full');void $('powerCard').offsetWidth;$('powerCard').classList.add('full');navigator.vibrate?.(20);}
 }
-
-function parseGestureResult(result, now){
-  anyHandSeen = !!(result?.landmarks?.length);
-  if(anyHandSeen) lastAnyHandSeen = now;
-
-  let best = null;
-
-  if(result?.gestures?.length){
-    for(let i=0;i<result.gestures.length;i++){
-      const g = result.gestures[i]?.[0];
-      if(!g) continue;
-
-      const mapped =
-        g.categoryName === "Closed_Fist" ? "CLOSED" :
-        g.categoryName === "Open_Palm" ? "OPEN" :
-        "UNKNOWN";
-
-      if(mapped === "UNKNOWN") continue;
-
-      if(!best || g.score > best.score){
-        best = {gesture:mapped,score:g.score};
-      }
-    }
-  }
-
-  if(best){
-    rawGesture = best.gesture;
-    gestureConfidence = best.score;
-    if(rawGesture === "CLOSED") fistSeenInCalibration = true;
-    if(rawGesture === "OPEN") openSeenInCalibration = true;
-  }else{
-    rawGesture = "UNKNOWN";
-    gestureConfidence = 0;
-  }
-
-  updateCalibrationUI();
-  updateStableGesture(now);
+function setCenter(){
+ if(smooth.alpha==null){$('aimState').textContent='⚠️ 尚未收到陀螺儀數值';return false;}
+ neutral={alpha:smooth.alpha,beta:smooth.beta};target={x:0,y:0};desired={x:0,y:0};
+ $('targetWrap').style.transform='translate3d(-50%,-50%,0)';
+ $('aimState').textContent='✓ 已設定準星中心';$('aimState').style.color='#83e596';return true;
 }
-
-function updateStableGesture(now){
-  if(rawGesture === "UNKNOWN") return;
-
-  if(rawGesture !== candidateGesture){
-    candidateGesture = rawGesture;
-    candidateSince = now;
-    return;
-  }
-
-  const required = rawGesture === "OPEN" ? OPEN_STABLE_MS : CLOSED_STABLE_MS;
-
-  if(now - candidateSince >= required && stableGesture !== rawGesture){
-    stableGesture = rawGesture;
-    onStableGestureChanged(stableGesture, now);
-  }
+function aim(ts){
+ if(sensor.alpha==null||neutral.alpha==null||ts-sensor.ts>1200)return;
+ const dt=clamp((ts-lastAimTs)/1000,.001,.05);lastAimTs=ts;
+ // Adaptive low-pass: fast rotations receive less smoothing; slow hand jitter is heavily smoothed.
+ const motion=Math.abs(wrap(sensor.alpha,smooth.alpha))+Math.abs(sensor.beta-smooth.beta);
+ const cutoff=motion>3?11:motion>1?7:3.6;
+ const a=1-Math.exp(-2*Math.PI*cutoff*dt);
+ smooth.alpha=(smooth.alpha+wrap(sensor.alpha,smooth.alpha)*a+360)%360;
+ smooth.beta+=(sensor.beta-smooth.beta)*a;
+ const softZone=v=>Math.sign(v)*Math.max(0,Math.abs(v)-.25);
+ const [h,v]=strengths[sensitivity];
+ desired.x=clamp(-softZone(wrap(smooth.alpha,neutral.alpha))*h,-app.clientWidth*.4,app.clientWidth*.4);
+ desired.y=clamp( softZone(smooth.beta-neutral.beta)*v,-app.clientHeight*.28,app.clientHeight*.28);
+ // Time-corrected easing, no 3.4px/frame artificial backlog.
+ const blend=1-Math.exp(-22*dt);
+ target.x+=(desired.x-target.x)*blend;target.y+=(desired.y-target.y)*blend;
+ $('targetWrap').style.transform=`translate3d(calc(-50% + ${target.x}px),calc(-50% + ${target.y}px),0)`;
+ document.querySelector('.hills').style.transform=`translate3d(${target.x*.12}px,${target.y*.05}px,0)`;
+ document.querySelector('.rangeLane').style.transform=`translate3d(calc(-50% + ${target.x*.23}px),${target.y*.07}px,0)`;
 }
-
-function onStableGestureChanged(g, now){
-  if(!gameActive || shotLock || pausedForRotate) return;
-
-  if(g === "CLOSED"){
-    if(drawState === "READY"){
-      drawState = "DRAWING";
-      drawStartTime = now;
-      power = 0;
-      fullDrawBuzzed = false;
-      setStatus("👊 拉弓中…");
-      setPower(0);
-    }
-    return;
-  }
-
-  if(g === "OPEN"){
-    if(drawState === "ARMED"){
-      shootArrow();
-    }else if(drawState === "DRAWING"){
-      cancelDraw("🤚 拉力不足，重新握拳");
-    }else{
-      setStatus("🤚 準備");
-    }
-  }
+function scoreFor(x,y){const r=Math.hypot(x,y);return r>1?0:clamp(10-Math.floor(r*10),1,10);}
+function shoot(){
+ if(shotLock||arrowsLeft<=0)return;
+ shotLock=true;draw='SHOOTING';status('💨 放箭！');
+ const rect=$('target').getBoundingClientRect();
+ const x=app.clientWidth/2,y=app.clientHeight*.45;
+ const drop=clamp((70-power)/70,0,1)*rect.height*.09;
+ const hitX=(x-(rect.left+rect.width/2))/(rect.width/2);
+ const hitY=(y+drop-(rect.top+rect.height/2))/(rect.height/2);
+ const n=scoreFor(hitX,hitY);
+ const arrow=$('flyingArrow');arrow.classList.remove('fly');void arrow.offsetWidth;arrow.classList.add('fly');navigator.vibrate?.(35);
+ setTimeout(()=>{
+  impacts.push({x:hitX,y:hitY});renderImpacts();score+=n;arrowsLeft--;scores.push(n);
+  $('score').textContent=score;$('arrowCount').textContent=arrowsLeft+' / 5';
+  const flash=$('scoreFlash');flash.textContent=n?'+'+n:'MISS';flash.classList.remove('show');void flash.offsetWidth;flash.classList.add('show');
+  cancel();resetTracking();
+  setTimeout(()=>{shotLock=false;if(!arrowsLeft)endGame();},650);
+ },420);
 }
-
-function updateCalibrationUI(){
-  $("gestureBadge").textContent =
-    rawGesture === "CLOSED" ? "👊🏻 CLOSED" :
-    rawGesture === "OPEN" ? "🤚🏻 OPEN" :
-    anyHandSeen ? "✋ 手已偵測，判斷中…" : "等待右手…";
-
-  $("fistTest").textContent = fistSeenInCalibration ? "✓ 已辨認" : "👊🏻 未完成";
-  $("openTest").textContent = openSeenInCalibration ? "✓ 已辨認" : "🤚🏻 未完成";
-
-  $("fistTest").classList.toggle("ok",fistSeenInCalibration);
-  $("openTest").classList.toggle("ok",openSeenInCalibration);
-}
-
-// ---------- draw logic ----------
-function updateDraw(now){
-  if(drawState !== "DRAWING" && drawState !== "ARMED") return;
-
-  if(now - lastAnyHandSeen > HAND_LOST_CANCEL_MS){
-    cancelDraw("✋ 找不到右手，請重新開始");
-    return;
-  }
-
-  // 只要最近仍見到手，而且沒有穩定辨認成 OPEN，就保留拉弓狀態。
-  // 拉弓力度只由時間決定，不使用手掌大小、距離或深度。
-  const elapsed = now - drawStartTime;
-  power = clamp(elapsed / FULL_DRAW_MS * 100, 0, 100);
-  setPower(power);
-
-  if(power >= MIN_SHOOT_POWER){
-    drawState = "ARMED";
-    setStatus(power >= 100 ? "🏹 FULL DRAW — 放開手掌" : "🏹 已拉弓 — 放開手掌");
-  }
-
-  if(power >= 100 && !fullDrawBuzzed){
-    fullDrawBuzzed = true;
-    const card = $("powerCard");
-    card.classList.remove("full");
-    void card.offsetWidth;
-    card.classList.add("full");
-    if(navigator.vibrate) navigator.vibrate(20);
-  }
-}
-
-function cancelDraw(msg="🤚 準備"){
-  drawState = "READY";
-  drawStartTime = 0;
-  power = 0;
-  fullDrawBuzzed = false;
-  setPower(0);
-  setStatus(msg);
-}
-
-function setPower(v){
-  const n = clamp(v,0,100);
-  $("powerFill").style.width = `${n}%`;
-  $("powerText").textContent = `${Math.round(n)}%`;
-}
-
-function setStatus(text){
-  $("gesturePill").textContent = text;
-}
-
-// ---------- aiming ----------
-function calibrateAim(){
-  if(filtered.alpha == null || filtered.beta == null){
-    $("aimState").textContent = "⚠️ 暫時未收到陀螺儀數值";
-    return;
-  }
-
-  neutral.alpha = filtered.alpha;
-  neutral.beta = filtered.beta;
-  desiredTarget.x = 0;
-  desiredTarget.y = 0;
-  displayedTarget.x = 0;
-  displayedTarget.y = 0;
-
-  $("aimState").textContent = "✓ 已設定準星中心";
-  $("aimState").style.color = "#83e596";
-}
-
-function updateAim(){
-  if(filtered.alpha == null || neutral.alpha == null) return;
-
-  const profile = sensitivityProfiles[sensitivityKey];
-
-  let dx = angleDiff(filtered.alpha, neutral.alpha);
-  let dy = filtered.beta - neutral.beta;
-
-  dx = applyDeadZone(dx, DEAD_ZONE_DEG);
-  dy = applyDeadZone(dy, DEAD_ZONE_DEG);
-
-  const w = app.clientWidth;
-  const h = app.clientHeight;
-
-  desiredTarget.x = clamp(-dx * profile.h, -w * 0.40, w * 0.40);
-  desiredTarget.y = clamp( dy * profile.v, -h * 0.28, h * 0.28);
-
-  // speed limit: target can only move a few pixels per frame
-  const stepX = clamp(desiredTarget.x - displayedTarget.x, -MAX_MOVE_PER_FRAME, MAX_MOVE_PER_FRAME);
-  const stepY = clamp(desiredTarget.y - displayedTarget.y, -MAX_MOVE_PER_FRAME, MAX_MOVE_PER_FRAME);
-
-  displayedTarget.x += stepX;
-  displayedTarget.y += stepY;
-
-  const target = $("targetWrap");
-  target.style.left = `calc(50% + ${displayedTarget.x}px)`;
-  target.style.top = `calc(45% + ${displayedTarget.y}px)`;
-}
-
-// ---------- shooting ----------
-function scoreFromNormalizedHit(x,y){
-  const r = Math.sqrt(x*x+y*y);
-  if(r > 1) return 0;
-  return clamp(10 - Math.floor(r*10),1,10);
-}
-
-function shootArrow(){
-  if(shotLock || arrowsLeft <= 0) return;
-
-  shotLock = true;
-
-  const targetRect = $("target").getBoundingClientRect();
-  const crossX = app.clientWidth / 2;
-  const crossY = app.clientHeight * 0.45;
-
-  const targetX = targetRect.left + targetRect.width/2;
-  const targetY = targetRect.top + targetRect.height/2;
-  const radius = targetRect.width/2;
-
-  const drop =
-    clamp((70-power)/70,0,1) * targetRect.height * 0.09;
-
-  const hitX = (crossX - targetX) / radius;
-  const hitY = (crossY + drop - targetY) / radius;
-  const shotScore = scoreFromNormalizedHit(hitX,hitY);
-
-  const arrow = $("flyingArrow");
-  arrow.classList.remove("fly");
-  void arrow.offsetWidth;
-  arrow.classList.add("fly");
-
-  if(navigator.vibrate) navigator.vibrate(35);
-
-  setTimeout(()=>{
-    impacts.push({x:hitX,y:hitY,score:shotScore});
-    renderImpacts();
-
-    score += shotScore;
-    arrowsLeft--;
-    shotScores.push(shotScore);
-
-    $("score").textContent = score;
-    $("arrowCount").textContent = `${arrowsLeft} / 5`;
-    flashScore(shotScore);
-
-    drawState = "READY";
-    drawStartTime = 0;
-    power = 0;
-    fullDrawBuzzed = false;
-    setPower(0);
-    setStatus("🤚 準備");
-
-    // 必須再次辨認 CLOSED 才可拉下一箭
-    stableGesture = "UNKNOWN";
-    candidateGesture = "UNKNOWN";
-
-    setTimeout(()=>{
-      shotLock = false;
-      if(arrowsLeft <= 0) endGame();
-    },650);
-  },420);
-}
-
 function renderImpacts(){
-  const layer = $("impactLayer");
-  layer.innerHTML = "";
-
-  for(const p of impacts){
-    if(Math.sqrt(p.x*p.x+p.y*p.y) > 1.05) continue;
-
-    const el = document.createElement("div");
-    el.className = "impact";
-    el.style.left = `${50 + p.x*50}%`;
-    el.style.top = `${50 + p.y*50}%`;
-    layer.appendChild(el);
-  }
+ const layer=$('impactLayer');layer.replaceChildren();
+ for(const p of impacts){if(Math.hypot(p.x,p.y)>1.05)continue;const dot=document.createElement('div');dot.className='impact';dot.style.left=(50+p.x*50)+'%';dot.style.top=(50+p.y*50)+'%';layer.appendChild(dot);}
 }
-
-function flashScore(value){
-  const el = $("scoreFlash");
-  el.textContent = value > 0 ? `+${value}` : "MISS";
-  el.classList.remove("show");
-  void el.offsetWidth;
-  el.classList.add("show");
-}
-
-// ---------- game flow ----------
-function resetGame(){
-  score = 0;
-  arrowsLeft = 5;
-  shotScores = [];
-  impacts = [];
-  shotLock = false;
-
-  $("score").textContent = "0";
-  $("arrowCount").textContent = "5 / 5";
-
-  renderImpacts();
-  cancelDraw();
-  stableGesture = "UNKNOWN";
-  candidateGesture = "UNKNOWN";
-  gameActive = true;
-}
-
-function endGame(){
-  gameActive = false;
-  cancelDraw();
-
-  $("endScore").textContent = `${score} / 50`;
-  $("endBreakdown").textContent =
-    shotScores.map((s,i)=>`第 ${i+1} 箭：${s} 分`).join("　");
-
-  $("endOverlay").classList.remove("hidden");
-}
-
-// ---------- inference loop ----------
-let lastVideoTime = -1;
-let lastInference = 0;
-let inferenceCount = 0;
-let fpsWindowStart = performance.now();
-let inferenceFPS = 0;
-
-function processCamera(now){
-  if(!recognizer || !video.videoWidth || video.readyState < 2) return;
-  if(now - lastInference < 70) return; // 約 14 FPS
-  if(video.currentTime === lastVideoTime) return;
-
-  lastInference = now;
-  lastVideoTime = video.currentTime;
-
+function resetGame(){score=0;arrowsLeft=5;scores=[];impacts=[];shotLock=false;$('score').textContent='0';$('arrowCount').textContent='5 / 5';renderImpacts();cancel();resetTracking();active=true;}
+function endGame(){active=false;cancel();$('endScore').textContent=score+' / 50';$('endBreakdown').textContent=scores.map((s,i)=>`第 ${i+1} 箭：${s} 分`).join('　');$('endOverlay').classList.remove('hidden');}
+function pauseOrientation(){const landscape=innerWidth>innerHeight;if(landscape){paused=true;if(draw!=='READY')cancel();$('rotateOverlay').classList.remove('hidden');}else if(paused){paused=false;$('rotateOverlay').classList.add('hidden');neutral.alpha=null;neutral.beta=null;status('🎯 請重新置中');}}
+function processFrames(ts){
+ if(!running||frameBusy||!video.videoWidth||video.readyState<2||ts-lastFrame<70||video.currentTime===lastFrameTime)return;
+ lastFrame=ts;lastFrameTime=video.currentTime;frameBusy=true;
+ if(workerOn){
+  const seq=++frameSeq;
+  createImageBitmap(video).then(bitmap=>{
+   if(!running||!worker){bitmap.close();frameBusy=false;return;}
+   worker.postMessage({type:'frame',bitmap,ts:tnow(),seq},[bitmap]);
+  }).catch(err=>{frameBusy=false;console.warn('ImageBitmap failed:',err);});
+  // Emergency recovery if an inference response never arrives (handled in loop).
+ }else{
   try{
-    const result = recognizer.recognizeForVideo(video,now);
-    parseGestureResult(result,now);
-
-    inferenceCount++;
-    if(now - fpsWindowStart > 1000){
-      inferenceFPS = inferenceCount * 1000 / (now - fpsWindowStart);
-      inferenceCount = 0;
-      fpsWindowStart = now;
-    }
-  }catch(err){
-    console.warn("Gesture inference error:",err);
-  }
+   const start=tnow(),res=engine.recognizeForVideo(video,start);
+   inferenceMs=tnow()-start;countInference();
+   const hands=(res.landmarks||[]).map((lm,i)=>{
+    let x=0,y=0;for(const p of lm){x+=p.x;y+=p.y;}
+    const chosen=(res.gestures?.[i]||[]).filter(c=>['Closed_Fist','Open_Palm'].includes(c.categoryName)).sort((a,b)=>b.score-a.score)[0];
+    return {x:x/lm.length,y:y/lm.length,confidence:chosen?.score||0,label:chosen?.categoryName||'UNKNOWN',handedness:res.handedness?.[i]?.[0]?.categoryName||'?'};
+   });
+   ingest(hands,start);
+  }catch(e){console.warn(e);}finally{frameBusy=false;}
+ }
 }
-
-// ---------- orientation / portrait ----------
-function checkOrientation(){
-  const landscape = window.innerWidth > window.innerHeight;
-
-  if(landscape){
-    if(!$("rotateOverlay").classList.contains("hidden")) return;
-
-    pausedForRotate = true;
-    if(drawState !== "READY") cancelDraw();
-    $("rotateOverlay").classList.remove("hidden");
-  }else{
-    const wasShown = !$("rotateOverlay").classList.contains("hidden");
-    $("rotateOverlay").classList.add("hidden");
-
-    if(wasShown){
-      pausedForRotate = false;
-      neutral.alpha = null;
-      neutral.beta = null;
-      setStatus("🎯 請按「置中」重新校準");
-    }
-  }
+function debug(ts){if(!debugMode)return;
+ $('debug').textContent=`Engine: ${workerOn?'WORKER':'MAIN'}\nGesture: ${raw}/${stable}\nHand: ${track?.handedness||'?'}\nDraw: ${draw}\nPower: ${Math.round(power)}%\nInference: ${inferenceMs.toFixed(0)}ms\nInference FPS: ${inferenceFps.toFixed(1)}\nRender FPS: ${renderFps.toFixed(1)}\nRelease lag: ${lastShotLatency.toFixed(0)}ms\nSensor age: ${(ts-sensor.ts).toFixed(0)}ms\nAim error: ${Math.hypot(desired.x-target.x,desired.y-target.y).toFixed(1)}px\nSensor: ${sensor.alpha?.toFixed(1)||'-'} / ${sensor.beta?.toFixed(1)||'-'}\nSensitivity: ${sensitivity}\nCalibration: ${calCount}/3`;
 }
-
-// ---------- debug ----------
-function updateDebug(){
-  if(!debugMode) return;
-
-  $("debug").textContent =
-`raw: ${rawGesture}
-stable: ${stableGesture}
-confidence: ${gestureConfidence.toFixed(2)}
-hand seen: ${anyHandSeen}
-draw state: ${drawState}
-power: ${power.toFixed(0)}%
-gyro raw α: ${orientation.alpha?.toFixed?.(1) ?? "-"}
-gyro raw β: ${orientation.beta?.toFixed?.(1) ?? "-"}
-smooth α: ${filtered.alpha?.toFixed?.(1) ?? "-"}
-smooth β: ${filtered.beta?.toFixed?.(1) ?? "-"}
-neutral α: ${neutral.alpha?.toFixed?.(1) ?? "-"}
-neutral β: ${neutral.beta?.toFixed?.(1) ?? "-"}
-target X: ${displayedTarget.x.toFixed(1)}
-target Y: ${displayedTarget.y.toFixed(1)}
-sensitivity: ${sensitivityKey}
-inference FPS: ${inferenceFPS.toFixed(1)}
-arrows: ${arrowsLeft}`;
+let lastDebug=0;
+function loop(ts){
+ if(running){
+  processFrames(ts);if(frameBusy&&workerOn&&ts-lastFrame>1500){console.warn('Worker stalled; pending frame reset');frameBusy=false;}
+  if(active&&!paused)updateDraw(ts);
+  if(active&&!paused)aim(ts);
+  renderN++;if(ts-renderStart>1000){renderFps=renderN*1000/(ts-renderStart);renderStart=ts;renderN=0;}
+  if(ts-lastDebug>300){debug(ts);lastDebug=ts;}
+ }
+ requestAnimationFrame(loop);
 }
-
-// ---------- events ----------
-$("startBtn").addEventListener("click",async()=>{
-  const msg = $("setupMsg");
-  $("startBtn").disabled = true;
-
-  try{
-    msg.textContent = "正在要求動作感應器權限…";
-    await requestMotionPermission();
-
-    msg.textContent = "正在啟動前置鏡頭…";
-    await initCamera();
-
-    msg.textContent = "正在載入 OPEN / CLOSED 手勢辨識…";
-    await initRecognizer();
-
-    running = true;
-    msg.textContent = "";
-
-    $("startOverlay").classList.add("hidden");
-    $("calOverlay").classList.remove("hidden");
-  }catch(err){
-    console.error(err);
-    msg.textContent = "設定失敗：" + (err?.message || "請確認相機權限及 HTTPS。");
-    $("startBtn").disabled = false;
-  }
+$('startBtn').addEventListener('click',async()=>{
+ const b=$('startBtn'),msg=$('setupMsg');b.disabled=true;
+ try{
+  msg.textContent='正在要求動作感應器權限…';await permission();
+  msg.textContent='正在啟動鏡頭…';await camera();
+  msg.textContent='正在載入辨認模型…';await initRecognition();
+  running=true;$('startOverlay').classList.add('hidden');$('calOverlay').classList.remove('hidden');
+ }catch(e){console.error(e);msg.textContent='設定失敗：'+e.message;b.disabled=false;}
 });
-
-$("calibrateAimBtn").addEventListener("click",calibrateAim);
-
-$("enterGameBtn").addEventListener("click",()=>{
-  if(neutral.alpha == null){
-    calibrateAim();
-  }
-
-  if(neutral.alpha == null){
-    $("aimState").textContent = "⚠️ 請先等候陀螺儀數值，再設定準星中心";
-    return;
-  }
-
-  $("calOverlay").classList.add("hidden");
-  resetGame();
-});
-
-$("recenterBtn").addEventListener("click",()=>{
-  if(filtered.alpha == null) return;
-  neutral.alpha = filtered.alpha;
-  neutral.beta = filtered.beta;
-  desiredTarget.x = 0;
-  desiredTarget.y = 0;
-  displayedTarget.x = 0;
-  displayedTarget.y = 0;
-  setStatus("🎯 已重新置中");
-  setTimeout(()=>{
-    if(gameActive && drawState === "READY") setStatus("🤚 準備");
-  },650);
-});
-
-$("againBtn").addEventListener("click",()=>{
-  $("endOverlay").classList.add("hidden");
-  resetGame();
-});
-
-$("endCalBtn").addEventListener("click",()=>{
-  $("endOverlay").classList.add("hidden");
-  gameActive = false;
-  $("calOverlay").classList.remove("hidden");
-});
-
-document.querySelectorAll("[data-sens]").forEach(btn=>{
-  btn.addEventListener("click",()=>{
-    sensitivityKey = btn.dataset.sens;
-    document.querySelectorAll("[data-sens]").forEach(b=>b.classList.remove("active"));
-    btn.classList.add("active");
-  });
-});
-
-window.addEventListener("resize",checkOrientation);
-window.addEventListener("orientationchange",()=>{
-  setTimeout(checkOrientation,250);
-});
-
-document.addEventListener("visibilitychange",()=>{
-  if(document.hidden && drawState !== "READY"){
-    cancelDraw();
-  }
-});
-
-if(debugMode){
-  $("debug").style.display = "block";
-  $("debugCam").style.display = "block";
-}
-
-function loop(now){
-  if(running){
-    processCamera(now);
-
-    if(gameActive && !pausedForRotate){
-      updateDraw(now);
-      updateAim();
-    }
-
-    updateDebug();
-  }
-
-  requestAnimationFrame(loop);
-}
-
-checkOrientation();
+$('calibrateAimBtn').addEventListener('click',setCenter);
+$('enterGameBtn').addEventListener('click',()=>{if(calCount<3)return;if(neutral.alpha==null&&!setCenter())return;$('calOverlay').classList.add('hidden');resetGame();});
+$('recenterBtn').addEventListener('click',()=>{if(setCenter())status('🎯 已重新置中');});
+$('againBtn').addEventListener('click',()=>{$('endOverlay').classList.add('hidden');resetGame();});
+$('endCalBtn').addEventListener('click',()=>{$('endOverlay').classList.add('hidden');active=false;cancel();resetTracking();calCount=0;calPhase='FIST';calibratedFist=calibratedOpen=false;updateCameraStatus();$('calOverlay').classList.remove('hidden');});
+document.querySelectorAll('[data-sens]').forEach(b=>b.addEventListener('click',()=>{sensitivity=b.dataset.sens;document.querySelectorAll('[data-sens]').forEach(x=>x.classList.remove('active'));b.classList.add('active');}));
+window.addEventListener('resize',pauseOrientation);
+document.addEventListener('visibilitychange',()=>{if(document.hidden){cancel();resetTracking();}else if(active){cancel('🎯 請重新置中');neutral.alpha=null;}});
+if(debugMode){$('debug').style.display='block';$('debugCam').style.display='block';}
 requestAnimationFrame(loop);
 </script>
 </body>
