@@ -1,0 +1,805 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+  <meta name="theme-color" content="#183a4b" />
+  <title>Gyro Archery V2.2</title>
+  <style>
+    :root{
+      --glass: rgba(12, 27, 38, .68);
+      --glass2: rgba(12, 27, 38, .82);
+      --line: rgba(255,255,255,.18);
+      --text: #fff;
+      --muted: rgba(255,255,255,.72);
+      --accent: #ffd84d;
+      --good: #83e596;
+      --warn: #ffd166;
+      --danger: #ff857c;
+    }
+
+    *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+    html,body{
+      margin:0;width:100%;height:100%;overflow:hidden;
+      background:#07141e;color:var(--text);
+      font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans TC",sans-serif;
+    }
+    button,input{font:inherit}
+
+    #app{
+      position:relative;
+      width:100%;
+      height:100dvh;
+      overflow:hidden;
+      touch-action:none;
+      background:
+        linear-gradient(to bottom,#7fc5ee 0 43%,#9bcf75 43% 60%,#6ca155 60% 100%);
+    }
+
+    /* simple scenery */
+    .skyGlow{
+      position:absolute;inset:0 0 45% 0;pointer-events:none;
+      background:radial-gradient(circle at 74% 18%,rgba(255,255,255,.42),transparent 24%);
+    }
+    .hills{
+      position:absolute;left:-18%;right:-18%;top:34%;height:30%;opacity:.23;pointer-events:none;will-change:transform;
+      background:
+        linear-gradient(145deg,transparent 0 26%,#325e51 26% 51%,transparent 51%) 0 0/46% 100% repeat-x;
+    }
+    .rangeLane{
+      position:absolute;left:50%;bottom:-16%;width:76%;height:60%;transform:translateX(-50%);
+      background:linear-gradient(to bottom,rgba(227,208,147,.36),rgba(182,148,77,.62));
+      clip-path:polygon(38% 0,62% 0,100% 100%,0 100%);
+      pointer-events:none;will-change:transform;
+    }
+
+    /* HUD */
+    #hud{
+      position:absolute;z-index:15;
+      top:max(10px,env(safe-area-inset-top));
+      left:10px;right:10px;
+      display:grid;
+      grid-template-columns:1fr auto 1fr;
+      align-items:start;gap:8px;
+      pointer-events:none;
+    }
+    .hudBox{
+      min-width:82px;
+      padding:8px 11px;
+      border:1px solid var(--line);
+      background:var(--glass);
+      border-radius:15px;
+      backdrop-filter:blur(8px);
+      box-shadow:0 8px 22px rgba(0,0,0,.12);
+    }
+    .hudBox.right{text-align:right;justify-self:end}
+    .hudLabel{font-size:9px;letter-spacing:.16em;opacity:.7}
+    .hudValue{font-size:21px;font-weight:900;line-height:1.1;margin-top:2px}
+    #recenterBtn{
+      pointer-events:auto;
+      border:1px solid var(--line);
+      color:#fff;background:var(--glass);
+      border-radius:14px;
+      padding:9px 11px;
+      font-size:12px;font-weight:800;
+      backdrop-filter:blur(8px);
+    }
+
+    /* World + target */
+    #world{position:absolute;inset:0;overflow:hidden}
+    #targetWrap{
+      position:absolute;
+      left:50%;
+      top:45%;
+      width:clamp(152px,44vw,210px);
+      aspect-ratio:1;
+      transform:translate(-50%,-50%);
+      will-change:transform;
+      filter:drop-shadow(0 13px 11px rgba(0,0,0,.23));
+    }
+    #target{
+      position:relative;width:100%;height:100%;border-radius:50%;
+      border:6px solid #ddd7c7;
+      background:
+        radial-gradient(circle,
+          #ffd83d 0 10%,
+          #efbd2a 10% 20%,
+          #f04f46 20% 30%,
+          #bb2933 30% 40%,
+          #5eb0e3 40% 50%,
+          #2475b7 50% 60%,
+          #242424 60% 70%,
+          #3b3b3b 70% 80%,
+          #f3efe6 80% 90%,
+          #d9d5ca 90% 100%);
+      box-shadow:inset 0 0 0 2px rgba(0,0,0,.14);
+    }
+    #target:after{
+      content:"";position:absolute;inset:49%;border-radius:50%;background:#151515;opacity:.35;
+    }
+    #stand{
+      position:absolute;left:50%;top:94%;width:58%;height:95%;
+      transform:translateX(-50%);
+      border-left:7px solid #725236;border-right:7px solid #725236;
+      clip-path:polygon(25% 0,75% 0,100% 100%,79% 100%,65% 17%,35% 17%,21% 100%,0 100%);
+      opacity:.88;z-index:-1;
+    }
+    #impactLayer{position:absolute;inset:0;pointer-events:none}
+    .impact{
+      position:absolute;width:12px;height:12px;border-radius:50%;
+      background:#f6f6f6;border:3px solid #1a2630;
+      transform:translate(-50%,-50%);
+      box-shadow:0 0 0 2px rgba(255,255,255,.4);
+    }
+    .impact:after{
+      content:"";position:absolute;left:6px;top:2px;width:28px;height:4px;border-radius:4px;
+      background:#5d4436;transform:rotate(-16deg);transform-origin:left center;
+    }
+
+    /* fixed sight */
+    #crosshair{
+      position:absolute;z-index:12;
+      left:50%;top:45%;
+      width:52px;height:52px;
+      transform:translate(-50%,-50%);
+      pointer-events:none;
+    }
+    #crosshair .ring{
+      position:absolute;inset:7px;border:2px solid rgba(255,255,255,.96);border-radius:50%;
+      box-shadow:0 0 0 1px rgba(0,0,0,.24),0 0 12px rgba(0,0,0,.12);
+    }
+    #crosshair .dot{
+      position:absolute;left:50%;top:50%;width:7px;height:7px;border-radius:50%;
+      transform:translate(-50%,-50%);background:#ff4c4c;
+      box-shadow:0 0 0 2px #fff;
+    }
+    #crosshair .h,#crosshair .v{position:absolute;background:rgba(255,255,255,.93)}
+    #crosshair .h{left:0;right:0;top:50%;height:1.5px}
+    #crosshair .v{top:0;bottom:0;left:50%;width:1.5px}
+
+    /* status */
+    #bottomPanel{
+      position:absolute;z-index:18;
+      left:12px;right:12px;
+      bottom:max(12px,env(safe-area-inset-bottom));
+      display:grid;gap:8px;
+      pointer-events:none;
+    }
+    #gesturePill{
+      justify-self:center;
+      border:1px solid var(--line);
+      background:var(--glass2);
+      border-radius:999px;
+      padding:8px 14px;
+      font-weight:900;font-size:14px;
+      backdrop-filter:blur(8px);
+      box-shadow:0 8px 22px rgba(0,0,0,.13);
+    }
+    #powerCard{
+      border:1px solid var(--line);
+      background:var(--glass2);
+      border-radius:16px;padding:10px 12px 11px;
+      backdrop-filter:blur(8px);
+    }
+    #powerTop{display:flex;justify-content:space-between;align-items:center;margin-bottom:7px}
+    #powerTop span:first-child{font-size:11px;font-weight:800;opacity:.78}
+    #powerText{font-size:13px;font-weight:900}
+    #powerTrack{height:11px;border-radius:999px;background:rgba(255,255,255,.16);overflow:hidden}
+    #powerFill{
+      height:100%;width:0%;
+      border-radius:999px;
+      background:linear-gradient(to right,#75db86,#ffd84d,#ff8f69);
+      transition:width .05s linear;
+    }
+    #powerCard.full #powerFill{animation:fullPulse .45s ease}
+    @keyframes fullPulse{
+      0%{filter:brightness(1)}
+      50%{filter:brightness(1.45)}
+      100%{filter:brightness(1)}
+    }
+
+    /* score feedback */
+    #scoreFlash{
+      position:absolute;z-index:25;left:50%;top:31%;
+      transform:translate(-50%,-50%) scale(.7);
+      font-size:52px;font-weight:950;opacity:0;
+      text-shadow:0 5px 18px rgba(0,0,0,.33);
+      pointer-events:none;
+    }
+    #scoreFlash.show{animation:scorePop .9s ease}
+    @keyframes scorePop{
+      0%{opacity:0;transform:translate(-50%,-50%) scale(.62)}
+      20%{opacity:1;transform:translate(-50%,-50%) scale(1.08)}
+      70%{opacity:1;transform:translate(-50%,-62%) scale(1)}
+      100%{opacity:0;transform:translate(-50%,-77%) scale(.94)}
+    }
+    #flyingArrow{
+      position:absolute;z-index:22;left:50%;top:78%;
+      width:140px;height:5px;border-radius:5px;background:#5f4434;
+      transform:translate(-50%,-50%) scale(1.3);opacity:0;pointer-events:none;
+    }
+    #flyingArrow:after{
+      content:"";position:absolute;right:-12px;top:-5px;
+      border-left:14px solid #e2e7eb;border-top:7px solid transparent;border-bottom:7px solid transparent;
+    }
+    #flyingArrow.fly{animation:flyArrow .48s cubic-bezier(.18,.72,.2,1)}
+    @keyframes flyArrow{
+      0%{opacity:1;transform:translate(-50%,-50%) scale(1.35)}
+      100%{opacity:.9;transform:translate(-50%,-410%) scale(.17)}
+    }
+
+    /* overlays */
+    .overlay{
+      position:absolute;z-index:50;inset:0;
+      display:flex;align-items:center;justify-content:center;
+      padding:22px;
+      background:linear-gradient(180deg,rgba(9,26,38,.95),rgba(7,17,27,.98));
+    }
+    .overlay.hidden{display:none}
+    .card{
+      width:min(100%,430px);
+      max-height:92dvh;overflow:auto;
+      padding:22px 18px;
+      border-radius:24px;
+      border:1px solid rgba(255,255,255,.14);
+      background:rgba(255,255,255,.07);
+      box-shadow:0 26px 82px rgba(0,0,0,.3);
+    }
+    .logo{text-align:center;font-size:44px;margin-bottom:4px}
+    h1{margin:2px 0 7px;text-align:center;font-size:28px;line-height:1.05}
+    .sub{text-align:center;margin:0 0 18px;color:var(--muted);font-size:13px;line-height:1.5}
+    .steps{display:grid;gap:9px;margin:16px 0}
+    .step{
+      display:grid;grid-template-columns:40px 1fr;gap:11px;align-items:center;
+      padding:10px;border-radius:15px;background:rgba(255,255,255,.055)
+    }
+    .step .ico{text-align:center;font-size:25px}
+    .step b{display:block;font-size:13px}
+    .step span{display:block;font-size:11px;opacity:.7;margin-top:2px;line-height:1.4}
+    .primary,.secondary{
+      width:100%;border-radius:15px;padding:13px 14px;
+      font-weight:900;cursor:pointer;margin-top:8px;
+    }
+    .primary{border:0;background:var(--accent);color:#17212b}
+    .secondary{border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.08);color:#fff}
+    .primary:disabled{opacity:.45;cursor:default}
+    .note{font-size:10.5px;line-height:1.5;opacity:.62;text-align:center;margin:11px 4px 0}
+    #setupMsg{min-height:19px;margin-top:8px;text-align:center;font-size:12px;color:#ffe57c}
+
+    #cameraBox{
+      position:relative;width:100%;aspect-ratio:4/3;
+      border-radius:17px;overflow:hidden;background:#05090c;
+      border:1px solid rgba(255,255,255,.14);
+      margin:13px 0;
+    }
+    #camera{
+      position:absolute;inset:0;width:100%;height:100%;object-fit:cover;
+      transform:scaleX(-1);
+    }
+    #gestureBadge{
+      position:absolute;left:10px;bottom:10px;
+      padding:7px 10px;border-radius:999px;
+      background:rgba(0,0,0,.66);font-size:12px;font-weight:900;
+      border:1px solid rgba(255,255,255,.18);
+    }
+    .testGrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:8px 0 10px}
+    .testItem{
+      text-align:center;padding:10px;border-radius:14px;
+      background:rgba(255,255,255,.055);font-size:11px
+    }
+    .testItem b{display:block;font-size:15px;margin-top:3px}
+    .ok{color:var(--good)}
+    #aimState{font-size:12px;text-align:center;color:var(--warn);margin:6px 0}
+
+    .sensWrap{
+      margin-top:12px;padding:11px;border-radius:15px;background:rgba(255,255,255,.055)
+    }
+    .sensTitle{font-size:11px;font-weight:800;opacity:.75;margin-bottom:8px}
+    .seg{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+    .seg button{
+      border:1px solid rgba(255,255,255,.13);background:rgba(255,255,255,.06);color:#fff;
+      border-radius:11px;padding:8px 5px;font-size:11px;font-weight:800;
+    }
+    .seg button.active{background:#fff;color:#12212e}
+
+    #endScore{text-align:center;font-size:52px;font-weight:950;margin:13px 0 4px}
+    #endBreakdown{text-align:center;font-size:12px;opacity:.72;line-height:1.7}
+
+    /* landscape warning */
+    #rotateOverlay{z-index:80}
+    #rotateOverlay .card{max-width:330px}
+
+    /* debug */
+    #debug{
+      position:absolute;z-index:70;right:7px;top:78px;
+      width:190px;padding:8px;border-radius:10px;
+      background:rgba(0,0,0,.74);font:10.5px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;
+      white-space:pre-wrap;display:none;pointer-events:none;
+    }
+    #debugCam{
+      position:absolute;z-index:69;right:7px;top:258px;
+      width:145px;aspect-ratio:4/3;object-fit:cover;transform:scaleX(-1);
+      border-radius:9px;border:1px solid rgba(255,255,255,.45);display:none;background:#000;
+    }
+
+    @media (max-height:690px){#targetWrap{width:clamp(135px,35vw,175px)}#bottomPanel{gap:5px}#powerCard{padding:8px 10px}#gesturePill{padding:6px 11px}}
+    @media (min-width:700px){
+      body{background:#07111c}
+      #app{max-width:500px;margin:auto;box-shadow:0 0 65px rgba(0,0,0,.38)}
+    }
+  
+    #scene{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none}
+    #aimHint{position:absolute;top:calc(88px + env(safe-area-inset-top));left:12px;right:12px;text-align:center;z-index:20;background:rgba(10,25,35,.85);padding:7px 10px;border-radius:12px;font-size:12px}
+    #crosshair{top:45%;}
+    #bottomPanel{bottom:max(12px,env(safe-area-inset-bottom));}
+    #scoreFlash{top:28%;}
+    @media(max-height:680px){#bottomPanel{gap:5px}#powerCard{padding:7px 10px}#gesturePill{padding:6px 12px}}
+  </style>
+</head>
+<body>
+<div id="app">
+  <div class="skyGlow"></div>
+  <div class="hills"></div>
+  <div class="rangeLane"></div>
+
+  <div id="hud">
+    <div class="hudBox">
+      <div class="hudLabel">ARROWS</div>
+      <div class="hudValue" id="arrowCount">5 / 5</div>
+    </div>
+
+    <button id="recenterBtn">🎯 置中</button>
+
+    <div class="hudBox right">
+      <div class="hudLabel">SCORE</div>
+      <div class="hudValue" id="score">0</div>
+    </div>
+  </div>
+
+  <canvas id="scene" aria-label="射箭場、箭靶與箭矢"></canvas>
+
+  <div id="crosshair">
+    <div class="ring"></div>
+    <div class="h"></div><div class="v"></div><div class="dot"></div>
+  </div>
+
+  
+  <div id="scoreFlash">+10</div>
+
+  <div id="bottomPanel">
+    <div id="gesturePill">🤚 準備</div>
+    <div id="powerCard">
+      <div id="powerTop">
+        <span>拉弓力度</span>
+        <span id="powerText">0%</span>
+      </div>
+      <div id="powerTrack"><div id="powerFill"></div></div>
+    </div>
+  </div>
+
+  <div id="startOverlay" class="overlay">
+    <div class="card">
+      <div class="logo">🏹</div>
+      <h1>Gyro Archery V2.2</h1>
+      <p class="sub">低延遲優化版：穩定瞄準 + 握拳拉弓 + 放掌射箭</p>
+
+      <div class="steps">
+        <div class="step"><div class="ico">📱</div><div><b>左手拿手機</b><span>像自拍一樣，用手機方向控制準星。</span></div></div>
+        <div class="step"><div class="ico">👊🏻</div><div><b>握拳開始拉弓</b><span>保持握拳約 0.8 秒，力度會自動增加。</span></div></div>
+        <div class="step"><div class="ico">🤚🏻</div><div><b>張開手掌放箭</b><span>只判斷 OPEN / CLOSED，不再估算手與鏡頭距離。</span></div></div>
+      </div>
+
+      <button class="primary" id="startBtn">開始設定</button>
+      <div id="setupMsg"></div>
+      <p class="note">需要相機及動作感應器權限。鏡頭影像只在你的裝置內用於手勢辨認，不會上載或儲存。</p>
+    </div>
+  </div>
+
+  <div id="calOverlay" class="overlay hidden">
+    <div class="card">
+      <h1 style="font-size:23px">手勢及瞄準設定</h1>
+      <p class="sub">不用把整隻手臂放進畫面，只要鏡頭能看到足夠的手指／拳頭輪廓即可。</p>
+
+      <div id="cameraBox">
+        <video id="camera" playsinline muted autoplay></video>
+        <div id="gestureBadge">等待右手…</div>
+      </div>
+
+      <div class="testGrid">
+        <div class="testItem">握拳測試<b id="fistTest">👊🏻 未完成</b></div>
+        <div class="testItem">張開測試<b id="openTest">🤚🏻 未完成</b></div>
+      </div>
+
+      <button class="primary" id="calibrateAimBtn">🎯 以目前方向設定為準星中心</button>
+      <div id="aimState">尚未設定準星中心</div><p class="note">轉動手機測試方向；若方向相反，可在下方反轉。</p><div class="seg"><button id="flipX" type="button">↔ 反轉左右：關</button><button id="flipY" type="button">↕ 反轉上下：關</button><button id="aimTest" type="button">方向測試</button></div><div id="calTip" class="note">請做 3 次「握拳 → 放掌」測試，完成後再開始。</div>
+
+      <div class="sensWrap">
+        <div class="sensTitle">瞄準靈敏度</div>
+        <div class="seg">
+          <button data-sens="low" class="active">LOW</button>
+          <button data-sens="normal">NORMAL</button>
+          <button data-sens="high">HIGH</button>
+        </div>
+      </div>
+
+      <button class="secondary" id="enterGameBtn" disabled>手勢測試 0 / 3</button>
+      <p class="note">如果之後覺得瞄準偏移，遊戲中可直接按「🎯 置中」。</p>
+    </div>
+  </div>
+
+  <div id="endOverlay" class="overlay hidden">
+    <div class="card">
+      <div class="logo">🎯</div>
+      <h1>本局完成</h1>
+      <div id="endScore">0 / 50</div>
+      <div id="endBreakdown">—</div>
+      <button class="primary" id="againBtn">再玩一次</button>
+      <button class="secondary" id="endCalBtn">重新設定</button>
+    </div>
+  </div>
+
+  <div id="rotateOverlay" class="overlay hidden">
+    <div class="card">
+      <div class="logo">📱</div>
+      <h1 style="font-size:24px">請將手機直向使用</h1>
+      <p class="sub">回到直向後會暫停射擊，並建議重新置中。</p>
+    </div>
+  </div>
+
+  <div id="aimHint" hidden>左右／上下轉動手機，觀察箭靶是否反向移動</div><pre id="debug"></pre>
+  <video id="debugCam" playsinline muted autoplay></video>
+</div>
+
+<script type="module">
+import {GestureRecognizer,FilesetResolver} from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.1.1/+esm';
+const MODEL='https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task';
+const BASE='https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.1.1/wasm';
+const $=id=>document.getElementById(id), app=$('app'),video=$('camera'),debugCam=$('debugCam');
+const debugMode=new URLSearchParams(location.search).get('debug')==='1';
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const wrap=(a,b)=>((a-b+540)%360)-180;
+const tnow=()=>performance.now();
+const config={fistMs:150,openMs:115,lostPauseMs:230,lostCancelMs:700,fullDrawMs:800,minPower:30};
+let active=false,running=false,paused=false,shotLock=false;
+let score=0,arrowsLeft=5,scores=[],impacts=[];
+let track=null,raw='UNKNOWN',stable='UNKNOWN',candidate='UNKNOWN',candidateSince=0,lastSeen=0,lastValid=0;
+let draw='READY',drawElapsed=0,lastDrawUpdate=0,power=0,fullBuzz=false,requiresFreshFist=true;
+let calibratedFist=false,calibratedOpen=false,calCount=0,calPhase='FIST';
+let sensor={alpha:null,beta:null,gamma:null,ts:0};
+let centerQ=null, rawRelQ=null, filteredYaw=0, filteredPitch=0, lastAimTs=0, sensitivity='low';
+let flipX=false,flipY=false,shotAnimation=null, hitMarkers=[],lastScoreInfo=null;
+const scene=$('scene'),g=scene.getContext('2d');
+const V3={D:9,R:2.1,gravity:.50};
+let deviceScreenAngle=0, view={yaw:0,pitch:0,q:[0,0,0,1]};
+const vadd=(a,b)=>a.map((v,i)=>v+b[i]);
+const vmul=(a,t)=>a.map(v=>v*t);
+const qMul=(a,b)=>[a[3]*b[0]+a[0]*b[3]+a[1]*b[2]-a[2]*b[1],a[3]*b[1]-a[0]*b[2]+a[1]*b[3]+a[2]*b[0],a[3]*b[2]+a[0]*b[1]-a[1]*b[0]+a[2]*b[3],a[3]*b[3]-a[0]*b[0]-a[1]*b[1]-a[2]*b[2]];
+const qConj=q=>[-q[0],-q[1],-q[2],q[3]];
+function qAxis(axis,a){let h=a/2,k=Math.sin(h);return [axis[0]*k,axis[1]*k,axis[2]*k,Math.cos(h)];}
+function qRotate(q,v){let p=qMul(qMul(q,[...v,0]),qConj(q));return p.slice(0,3);}
+const RAD=Math.PI/180;
+function deviceQuaternion(a,b,c,screenAngle=0){
+ // W3C intrinsic Z-X'-Y'' angles, transformed from device frame into upright camera frame.
+ const q=qMul(qMul(qAxis([0,0,1],a*RAD),qAxis([1,0,0],b*RAD)),qAxis([0,1,0],c*RAD));
+ return qMul(qMul(q,qAxis([1,0,0],-Math.PI/2)),qAxis([0,0,1],-screenAngle*RAD));
+}
+function currentQ(){return deviceQuaternion(sensor.alpha,sensor.beta,sensor.gamma,deviceScreenAngle);}
+function relQ(){return centerQ ? qMul(qConj(centerQ),currentQ()):[0,0,0,1];}
+function lerpAngle(a,b,k){return a+((b-a+Math.PI*3)%(Math.PI*2)-Math.PI)*k;}
+function metrics(){let w=app.clientWidth,h=app.clientHeight;return {w,h,cx:w/2,cy:h*.45,f:Math.min(w*1.10,450),scale:Math.min(devicePixelRatio||1,2)};}
+function project(p,m,q=view.q){const local=qRotate(qConj(q),p), depth=-local[2];if(depth<.05)return null;return {x:m.cx+local[0]/depth*m.f,y:m.cy-local[1]/depth*m.f,z:depth};}
+function worldAimQuat(){return qMul(qAxis([0,1,0],view.yaw),qAxis([1,0,0],view.pitch));}
+
+let worker=null,engine=null,workerOn=false,frameBusy=false,frameSeq=0,lastFrame=0,lastFrameTime=-1;
+let inferenceMs=0,inferenceFps=0,measureN=0,measureStart=tnow(),renderN=0,renderFps=0,renderStart=tnow(),lastShotLatency=0;
+const strengths={low:[2.35,2.0],normal:[3.1,2.6],high:[3.85,3.2]};
+
+function status(s){$('gesturePill').textContent=s;}
+function setPower(v){power=clamp(v,0,100);$('powerFill').style.width=power+'%';$('powerText').textContent=Math.round(power)+'%';}
+function resetTracking(){track=null;raw=stable=candidate='UNKNOWN';candidateSince=0;requiresFreshFist=true;}
+function cancel(msg='🤚 準備') {draw='READY';drawElapsed=0;lastDrawUpdate=0;fullBuzz=false;setPower(0);status(msg);requiresFreshFist=true;}
+function orientationInput(e){
+ if(e.alpha==null||e.beta==null)return;
+ sensor={alpha:e.alpha,beta:e.beta,gamma:e.gamma??0,ts:tnow()};
+ deviceScreenAngle=screen.orientation?.angle??window.orientation??0;
+}
+async function permission(){
+ if(typeof DeviceOrientationEvent==='undefined')throw Error('此瀏覽器沒有提供動作感應器。');
+ // iOS permission must be requested directly in a click task (before asynchronous camera/model work).
+ if(typeof DeviceOrientationEvent.requestPermission==='function'){
+  const p=await DeviceOrientationEvent.requestPermission();if(p!=='granted')throw Error('未取得動作感應器權限。');
+ }
+ window.addEventListener('deviceorientation',orientationInput,true);
+}
+async function camera(){
+ const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:640},height:{ideal:480},frameRate:{ideal:20,max:24}},audio:false});
+ video.srcObject=stream;debugCam.srcObject=stream;await video.play();
+}
+async function buildMainEngine(){
+ const files=await FilesetResolver.forVisionTasks(BASE);
+ engine=await GestureRecognizer.createFromOptions(files,{baseOptions:{modelAssetPath:MODEL},runningMode:'VIDEO',numHands:2,minHandDetectionConfidence:.48,minHandPresenceConfidence:.48,minTrackingConfidence:.45});
+}
+async function initRecognition(){
+ // Worker is optional. If initialization or browser support fails, fall back to throttled main thread inference.
+ try{
+  if(!window.Worker||!window.createImageBitmap)throw Error('Worker/ImageBitmap unavailable');
+  worker=new Worker(new URL('./gesture-worker.js',import.meta.url),{type:'module'});
+  await Promise.race([
+   new Promise((resolve,reject)=>{
+    const timeout=setTimeout(()=>reject(Error('Worker initialization timed out')),12000);
+    worker.onmessage=e=>{
+     const m=e.data;
+     if(m.type==='ready'){clearTimeout(timeout);workerOn=true;resolve();}
+     else if(m.type==='error'){clearTimeout(timeout);reject(Error(m.error));}
+     else handleWorker(m);
+    };
+    worker.onerror=e=>{clearTimeout(timeout);reject(Error(e.message||'Worker error'));};
+    worker.postMessage({type:'init'});
+   })
+  ]);
+ }catch(e){
+  console.warn('Worker unavailable, switching to main-thread fallback:',e);
+  if(worker){worker.terminate();worker=null;}workerOn=false;
+  await buildMainEngine();
+ }
+}
+function handleWorker(m){
+ if(m.type==='result'){
+  frameBusy=false;
+  if(tnow()-m.ts > 330)return; // Discard stale camera results; NEVER release from old frames.
+  inferenceMs=m.elapsed;countInference();ingest(m.hands,m.ts);
+ }else if(m.type==='frameError'){
+  frameBusy=false;console.warn(m.error);
+ }
+}
+function countInference(){measureN++;if(tnow()-measureStart>=1000){inferenceFps=measureN*1000/(tnow()-measureStart);measureStart=tnow();measureN=0;}}
+function chooseHand(hands,ts){
+ if(!hands.length)return null;
+ // Track the selected hand continuously, rather than taking the top confidence each frame.
+ if(track){
+  let nearest=hands.map(h=>({h,d:Math.hypot(h.x-track.x,h.y-track.y)})).sort((a,b)=>a.d-b.d)[0];
+  if(nearest && nearest.d<.24)return nearest.h;
+  if(ts-lastSeen < config.lostCancelMs)return null;
+ }
+ // Prioritize right-handed label; handedness from front-facing cameras varies, so calibration controls final selection.
+ // Fallback to a confident hand if no right-hand label is returned.
+ const list=hands.filter(h=>h.label!=='UNKNOWN');
+ if(!list.length)return null;
+ return list.sort((a,b)=>b.confidence-a.confidence)[0];
+}
+function ingest(hands,ts){
+ if(!running)return;
+ const chosen=chooseHand(hands,ts);
+ if(!chosen){
+  raw='UNKNOWN';candidate='UNKNOWN';candidateSince=0;
+  // Preserve stable state only for short interruptions, never permit a release on missing hands.
+  if(ts-lastSeen>config.lostCancelMs){stable='UNKNOWN';track=null;}
+  updateCameraStatus();return;
+ }
+ track={x:chosen.x,y:chosen.y,handedness:chosen.handedness};lastSeen=ts;
+ raw=chosen.confidence>=.49 ? (chosen.label==='Closed_Fist'?'CLOSED':chosen.label==='Open_Palm'?'OPEN':'UNKNOWN'):'UNKNOWN';
+ if(raw==='UNKNOWN'){candidate='UNKNOWN';candidateSince=0;updateCameraStatus();return;}
+ if(candidate!==raw){candidate=raw;candidateSince=ts;}
+ const ms=raw==='CLOSED'?config.fistMs:config.openMs;
+ if(ts-candidateSince>=ms && stable!==raw){
+  // Don't treat the first open hand after tracking loss as a valid release.
+  if(raw==='OPEN' && ts-lastValid>config.lostPauseMs && draw!=='READY'){cancel('✋ 請重新握拳');}
+  stable=raw;gestureChanged(raw,ts);
+ }
+ lastValid=ts;
+ updateCameraStatus();
+}
+function gestureChanged(g,ts){
+ if(!active||paused||shotLock){calibrationGesture(g);return;}
+ if(g==='CLOSED'){
+  if(draw==='READY'){
+   draw='DRAWING';drawElapsed=0;lastDrawUpdate=ts;requiresFreshFist=false;fullBuzz=false;status('👊 拉弓中…');
+  }
+ }else if(g==='OPEN'){
+  if(draw==='ARMED' && !requiresFreshFist){lastShotLatency=tnow()-ts;shoot();}
+  else if(draw==='DRAWING')cancel('🤚 拉力不足，重新握拳');
+  else status('🤚 準備');
+ }
+}
+function calibrationGesture(g){
+ if(!$('calOverlay').classList.contains('hidden')){
+  if(g==='CLOSED')calibratedFist=true;
+  if(g==='OPEN')calibratedOpen=true;
+  if(g===calPhase){
+   if(g==='FIST')return;
+  }
+  if(calPhase==='FIST'&&g==='CLOSED')calPhase='OPEN';
+  else if(calPhase==='OPEN'&&g==='OPEN'){
+   calCount=Math.min(3,calCount+1);calPhase='FIST';
+  }
+  updateCameraStatus();
+ }
+}
+function updateCameraStatus(){
+ const shown=raw==='CLOSED'?'👊🏻 CLOSED':raw==='OPEN'?'🤚🏻 OPEN':track?'✋ 手勢不明確':'✋ 請讓右手進入鏡頭';
+ $('gestureBadge').textContent=shown;
+ $('fistTest').textContent=calibratedFist?'✓ 已辨認':'👊🏻 未完成';
+ $('openTest').textContent=calibratedOpen?'✓ 已辨認':'🤚🏻 未完成';
+ $('fistTest').classList.toggle('ok',calibratedFist);$('openTest').classList.toggle('ok',calibratedOpen);
+ $('calTip').textContent=`握拳 → 放掌測試：${calCount} / 3 次${calCount===3?' ✓':''}`;
+ $('enterGameBtn').disabled=calCount<3;
+ $('enterGameBtn').textContent=calCount===3?'開始射箭':`手勢測試 ${calCount} / 3`;
+}
+function updateDraw(ts){
+ if(draw!=='DRAWING' && draw!=='ARMED')return;
+ const lost=ts-lastSeen;
+ if(lost>config.lostCancelMs){cancel('✋ 找不到右手，請重新握拳');resetTracking();return;}
+ if(lost>config.lostPauseMs){lastDrawUpdate=ts;status('✋ 追蹤暫停…');return;}
+ const dt=Math.max(0,Math.min(50,ts-lastDrawUpdate));lastDrawUpdate=ts;
+ if(stable==='CLOSED'||raw==='CLOSED'){drawElapsed+=dt;}
+ setPower(drawElapsed/config.fullDrawMs*100);
+ if(power>=config.minPower)draw='ARMED';
+ if(draw==='ARMED')status(power>=100?'🏹 FULL DRAW — 放掌射箭':'🏹 已拉弓 — 放掌射箭');
+ else status('👊 拉弓中…');
+ if(power>=100&&!fullBuzz){fullBuzz=true;$('powerCard').classList.remove('full');void $('powerCard').offsetWidth;$('powerCard').classList.add('full');navigator.vibrate?.(20);}
+}
+function setCenter(){
+ if(sensor.alpha==null||tnow()-sensor.ts>800){$('aimState').textContent='⚠️ 感應資料尚未更新，請稍後再試';return false;}
+ centerQ=currentQ();rawRelQ=[0,0,0,1];filteredYaw=0;filteredPitch=0;lastAimTs=tnow();
+ view={yaw:0,pitch:0,q:[0,0,0,1]};
+ $('aimState').textContent='✓ 已設定準星中心';$('aimState').style.color='#83e596';return true;
+}
+function aim(ts){
+ if(!centerQ||sensor.alpha==null||ts-sensor.ts>900)return;
+ let r=relQ();rawRelQ=r;
+ // Rotate the phone's camera-forward vector to get an aim direction (rather than subtracting Euler angles).
+ const d=qRotate(r,[0,0,-1]);
+ let yaw=Math.atan2(-d[0],-d[2]);
+ let pitch=Math.atan2(d[1],Math.hypot(d[0],d[2]));
+ if(flipX)yaw=-yaw;if(flipY)pitch=-pitch;
+ const strength={low:.60,normal:.80,high:1.0}[sensitivity];
+ yaw=clamp(yaw*strength,-.65,.65);pitch=clamp(pitch*strength,-.55,.55);
+ const dt=clamp((ts-lastAimTs)/1000,.001,.08);lastAimTs=ts;
+ const diff=Math.hypot(yaw-filteredYaw,pitch-filteredPitch);
+ const hz=diff>.055?17:diff>.012?12:7.5;
+ const blend=1-Math.exp(-2*Math.PI*hz*dt);
+ filteredYaw=lerpAngle(filteredYaw,yaw,blend);
+ filteredPitch+=(pitch-filteredPitch)*blend;
+ view.yaw=filteredYaw;view.pitch=filteredPitch;
+ view.q=worldAimQuat();
+}
+function scoreFor(x,y){const r=Math.hypot(x,y);return r>1?0:clamp(10-Math.floor(r*10),1,10);}
+function arrowRay(){return qRotate(view.q,[0,0,-1]);}
+function shoot(){
+ if(shotLock||arrowsLeft<=0)return;
+ shotLock=true;draw='SHOOTING';status('💨 放箭！');
+ const launch=tnow(),direction=arrowRay();
+ // A ballistic path in world space. Score and visible arrow use exactly the same trajectory.
+ const travel=V3.D/Math.max(.20,-direction[2]);
+ const speed=22+power*.23;
+ const duration=travel/speed;
+ const displacement=vmul(direction,travel);
+ const hit=[displacement[0],displacement[1] - .5*V3.gravity*duration*duration, -V3.D];
+ const normalized={x:hit[0]/V3.R,y:-hit[1]/V3.R};
+ const n=scoreFor(normalized.x,normalized.y);
+ lastScoreInfo={hit,normalized,n,launch,shotQ:[...view.q]};
+ shotAnimation={launch,duration:Math.max(.30,duration),speed,direction:[...direction],hit, power,n};
+ navigator.vibrate?.(35);
+ setTimeout(()=>{
+  hitMarkers.push({...normalized,n});score+=n;arrowsLeft--;scores.push(n);
+  $('score').textContent=score;$('arrowCount').textContent=arrowsLeft+' / 5';
+  const flash=$('scoreFlash');flash.textContent=n?'+'+n:'MISS';flash.classList.remove('show');void flash.offsetWidth;flash.classList.add('show');
+  cancel();resetTracking();
+  setTimeout(()=>{shotLock=false;if(!arrowsLeft)endGame();},570);
+ },Math.max(.30,duration)*1000);
+}
+function renderImpacts(){ /* V2.2 impact marks are rendered in target local space on the same canvas. */ }
+function poly(points,fill,m,q){const pts=points.map(p=>project(p,m,q));if(pts.some(p=>!p))return;g.beginPath();g.moveTo(pts[0].x,pts[0].y);for(let i=1;i<pts.length;i++)g.lineTo(pts[i].x,pts[i].y);g.closePath();g.fillStyle=fill;g.fill();}
+function drawWorld(ts){
+ const m=metrics(),dpr=m.scale;
+ if(scene.width!==Math.round(m.w*dpr)||scene.height!==Math.round(m.h*dpr)){
+  scene.width=Math.round(m.w*dpr);scene.height=Math.round(m.h*dpr);
+ }
+ g.setTransform(dpr,0,0,dpr,0,0);
+ g.clearRect(0,0,m.w,m.h);
+ const horizon=m.cy+Math.tan(view.pitch)*m.f;
+ const sky=g.createLinearGradient(0,0,0,m.h);sky.addColorStop(0,'#83c9ee');sky.addColorStop(1,'#c3e7f0');g.fillStyle=sky;g.fillRect(0,0,m.w,m.h);
+ // Flat-distance mountain skyline, driven by camera yaw and pitch, rather than target DOM offset.
+ g.fillStyle='#77a8ae';g.beginPath();g.moveTo(0,m.h);
+ for(let x=-15;x<=m.w+20;x+=12){let s=x+view.yaw*m.f*.4;let y=horizon-30-24*Math.sin(s*.016)-17*Math.sin(s*.043);g.lineTo(x,y);}g.lineTo(m.w,m.h);g.fill();
+ g.fillStyle='#87b966';g.fillRect(0,clamp(horizon,0,m.h),m.w,m.h);
+ // Track and stand use world coordinates and the same camera projection as the target.
+ poly([[-1.4,-2.4,-7.5],[1.4,-2.4,-7.5],[3.8,-2.4,-1],[-3.8,-2.4,-1]],'#cfb78b',m);
+ poly([[-.1,-2.2,-V3.D],[.1,-2.2,-V3.D],[.05,-.3,-V3.D],[-.05,-.3,-V3.D]],'#876140',m);
+ poly([[-1.18,-2.7,-V3.D],[-.95,-2.7,-V3.D],[0,-.55,-V3.D]],'#7a553a',m);
+ poly([[1.18,-2.7,-V3.D],[.95,-2.7,-V3.D],[0,-.55,-V3.D]],'#7a553a',m);
+ // Project the target into camera space; avoid CSS positions or independent transform ratios.
+ const c=project([0,0,-V3.D],m),edge=project([V3.R,0,-V3.D],m);
+ if(c&&edge){
+  const radius=Math.abs(edge.x-c.x);
+  if(radius>2 && radius<1800){
+   g.save();g.translate(c.x,c.y);
+   const rings=[['#e6dfca',1.06],['#f7f3e7',1],['#292b2b',.8],['#46a2d9',.6],['#dc4741',.4],['#f8cd42',.2]];
+   for(const [color,ratio] of rings){g.beginPath();g.arc(0,0,radius*ratio,0,Math.PI*2);g.fillStyle=color;g.fill();}
+   g.beginPath();g.arc(0,0,2.3,0,Math.PI*2);g.fillStyle='#66522b';g.fill();g.restore();
+  }
+ }
+ for(const p of hitMarkers){
+  if(Math.hypot(p.x,p.y)>1)continue;
+  const at=project([p.x*V3.R,-p.y*V3.R,-V3.D+.005],m);
+  if(!at)continue;
+  g.save();g.translate(at.x,at.y);g.rotate(-.3);g.strokeStyle='#503c2d';g.lineWidth=3;g.beginPath();g.moveTo(-2,0);g.lineTo(22,-7);g.stroke();g.fillStyle='#fafafa';g.strokeStyle='#182b37';g.lineWidth=2;g.beginPath();g.arc(0,0,5,0,Math.PI*2);g.fill();g.stroke();g.restore();
+ }
+ if(shotAnimation){
+  const a=shotAnimation,elapsed=(ts-a.launch)/1000;
+  if(elapsed>=0 && elapsed<=a.duration+.08){
+   const t=Math.min(elapsed,a.duration),dist=a.speed*t;
+   const tip=[a.direction[0]*dist,a.direction[1]*dist-.5*V3.gravity*t*t,a.direction[2]*dist];
+   const tail=vmul(a.direction,Math.max(0,dist-.75));tail[1]-=.5*V3.gravity*Math.max(0,t-.035)**2;
+   const p1=project(tip,m),p2=project(tail,m);
+   if(p1&&p2){g.strokeStyle='#6d4d31';g.lineWidth=clamp(4/p1.z,1.3,5);g.beginPath();g.moveTo(p2.x,p2.y);g.lineTo(p1.x,p1.y);g.stroke();g.fillStyle='#e9eef1';g.beginPath();g.arc(p1.x,p1.y,clamp(7/p1.z,1,5),0,Math.PI*2);g.fill();}
+  }else if(elapsed>a.duration+.08) shotAnimation=null;
+ }
+}
+function resetGame(){score=0;arrowsLeft=5;scores=[];impacts=[];hitMarkers=[];shotAnimation=null;shotLock=false;$('score').textContent='0';$('arrowCount').textContent='5 / 5';renderImpacts();cancel();resetTracking();active=true;}
+function endGame(){active=false;cancel();$('endScore').textContent=score+' / 50';$('endBreakdown').textContent=scores.map((s,i)=>`第 ${i+1} 箭：${s} 分`).join('　');$('endOverlay').classList.remove('hidden');}
+function pauseOrientation(){const landscape=innerWidth>innerHeight;if(landscape){paused=true;if(draw!=='READY')cancel();$('rotateOverlay').classList.remove('hidden');}else if(paused){paused=false;$('rotateOverlay').classList.add('hidden');centerQ=null;status('🎯 請重新置中');}}
+function processFrames(ts){
+ if(!running||frameBusy||!video.videoWidth||video.readyState<2||ts-lastFrame<70||video.currentTime===lastFrameTime)return;
+ lastFrame=ts;lastFrameTime=video.currentTime;frameBusy=true;
+ if(workerOn){
+  const seq=++frameSeq;
+  createImageBitmap(video).then(bitmap=>{
+   if(!running||!worker){bitmap.close();frameBusy=false;return;}
+   worker.postMessage({type:'frame',bitmap,ts:tnow(),seq},[bitmap]);
+  }).catch(err=>{frameBusy=false;console.warn('ImageBitmap failed:',err);});
+  // Emergency recovery if an inference response never arrives (handled in loop).
+ }else{
+  try{
+   const start=tnow(),res=engine.recognizeForVideo(video,start);
+   inferenceMs=tnow()-start;countInference();
+   const hands=(res.landmarks||[]).map((lm,i)=>{
+    let x=0,y=0;for(const p of lm){x+=p.x;y+=p.y;}
+    const chosen=(res.gestures?.[i]||[]).filter(c=>['Closed_Fist','Open_Palm'].includes(c.categoryName)).sort((a,b)=>b.score-a.score)[0];
+    return {x:x/lm.length,y:y/lm.length,confidence:chosen?.score||0,label:chosen?.categoryName||'UNKNOWN',handedness:res.handedness?.[i]?.[0]?.categoryName||'?'};
+   });
+   ingest(hands,start);
+  }catch(e){console.warn(e);}finally{frameBusy=false;}
+ }
+}
+function debug(ts){if(!debugMode)return;
+ const c=project([0,0,-V3.D],metrics());
+ $('debug').textContent=`Engine: ${workerOn?'WORKER':'MAIN'}\nGesture: ${raw}/${stable}\nHand: ${track?.handedness||'?'}\nDraw: ${draw}\nPower: ${Math.round(power)}%\nInference: ${inferenceMs.toFixed(0)}ms\nInference FPS: ${inferenceFps.toFixed(1)}\nRender FPS: ${renderFps.toFixed(1)}\nRelease lag: ${lastShotLatency.toFixed(0)}ms\nSensor age: ${(ts-sensor.ts).toFixed(0)}ms\nEuler: ${sensor.alpha?.toFixed(1)??'-'}/${sensor.beta?.toFixed(1)??'-'}/${sensor.gamma?.toFixed(1)??'-'}\nRelative Q: ${rawRelQ?.map(x=>x.toFixed(2)).join(',')??'-'}\nYaw: ${(view.yaw/RAD).toFixed(1)} Pitch: ${(view.pitch/RAD).toFixed(1)}\nForward: ${arrowRay().map(x=>x.toFixed(2))}\nAim px: ${(c?.x??0).toFixed(0)},${(c?.y??0).toFixed(0)}\nHit: ${lastScoreInfo?JSON.stringify(lastScoreInfo.normalized):'-'}\nSensitivity: ${sensitivity}\nCalibration: ${calCount}/3`;
+}
+let lastDebug=0;
+function loop(ts){
+ if(running){
+  processFrames(ts);if(frameBusy&&workerOn&&ts-lastFrame>1500){console.warn('Worker stalled; pending frame reset');frameBusy=false;}
+  if(active&&!paused)updateDraw(ts);
+  if(active&&!paused)aim(ts);
+  drawWorld(ts);
+  renderN++;if(ts-renderStart>1000){renderFps=renderN*1000/(ts-renderStart);renderStart=ts;renderN=0;}
+  if(ts-lastDebug>300){debug(ts);lastDebug=ts;}
+ }
+ requestAnimationFrame(loop);
+}
+$('startBtn').addEventListener('click',async()=>{
+ const b=$('startBtn'),msg=$('setupMsg');b.disabled=true;
+ try{
+  msg.textContent='正在要求動作感應器權限…';await permission();
+  msg.textContent='正在啟動鏡頭…';await camera();
+  msg.textContent='正在載入辨認模型…';await initRecognition();
+  running=true;$('startOverlay').classList.add('hidden');$('calOverlay').classList.remove('hidden');
+ }catch(e){console.error(e);msg.textContent='設定失敗：'+e.message;b.disabled=false;}
+});
+$('calibrateAimBtn').addEventListener('click',setCenter);
+$('enterGameBtn').addEventListener('click',()=>{if(calCount<3)return;if(!centerQ&&!setCenter())return;$('calOverlay').classList.add('hidden');resetGame();});
+$('recenterBtn').addEventListener('click',()=>{if(setCenter())status('🎯 已重新置中');});
+$('flipX').addEventListener('click',()=>{flipX=!flipX;$('flipX').textContent='↔ 反轉左右：'+(flipX?'開':'關');});
+$('flipY').addEventListener('click',()=>{flipY=!flipY;$('flipY').textContent='↕ 反轉上下：'+(flipY?'開':'關');});
+$('aimTest').addEventListener('click',()=>{const p=$('aimHint');p.hidden=!p.hidden;});
+$('againBtn').addEventListener('click',()=>{$('endOverlay').classList.add('hidden');resetGame();});
+$('endCalBtn').addEventListener('click',()=>{$('endOverlay').classList.add('hidden');active=false;cancel();resetTracking();calCount=0;calPhase='FIST';calibratedFist=calibratedOpen=false;updateCameraStatus();$('calOverlay').classList.remove('hidden');});
+document.querySelectorAll('[data-sens]').forEach(b=>b.addEventListener('click',()=>{sensitivity=b.dataset.sens;document.querySelectorAll('[data-sens]').forEach(x=>x.classList.remove('active'));b.classList.add('active');}));
+window.addEventListener('resize',pauseOrientation);
+document.addEventListener('visibilitychange',()=>{if(document.hidden){cancel();resetTracking();}else if(active){cancel('🎯 請重新置中');centerQ=null;}});
+if(debugMode){$('debug').style.display='block';$('debugCam').style.display='block';}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
