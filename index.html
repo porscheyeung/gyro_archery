@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
   <meta name="theme-color" content="#183a4b" />
-  <title>Gyro Archery V2.2</title>
+  <title>Gyro Archery V2.3 — Fruit Toss</title>
   <style>
     :root{
       --glass: rgba(12, 27, 38, .68);
@@ -333,6 +333,15 @@
     #crosshair{top:45%;}
     #bottomPanel{bottom:max(12px,env(safe-area-inset-bottom));}
     #scoreFlash{top:28%;}
+    #middleControls{display:flex;flex-direction:column;gap:5px;pointer-events:auto;align-items:center}
+    #middleControls button{font-size:11px;padding:7px 8px;white-space:nowrap;border:1px solid var(--line);color:#fff;background:var(--glass);border-radius:11px;backdrop-filter:blur(8px)}
+    #middleControls #recenterBtn{font-size:11px;padding:7px 8px}
+    .levelChoice{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin:14px 0}
+    .levelPick{min-width:0;display:flex;flex-direction:column;gap:5px;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,.22);border-radius:15px;padding:13px 6px;background:rgba(255,255,255,.07);color:#fff;font-size:27px}
+    .levelPick b{font-size:14px}.levelPick small{font-size:10px;opacity:.76;text-align:center}
+    .levelPick.chosen{border:2px solid #ffdf69;background:rgba(255,217,70,.15)}
+    #fruitNotice{position:absolute;z-index:15;top:calc(max(10px,env(safe-area-inset-top)) + 71px);left:50%;transform:translateX(-50%);background:rgba(14,38,49,.62);padding:6px 12px;border-radius:999px;font-size:12px;font-weight:800;max-width:78%;text-align:center;pointer-events:none;display:none}
+
     @media(max-height:680px){#bottomPanel{gap:5px}#powerCard{padding:7px 10px}#gesturePill{padding:6px 12px}}
   </style>
 </head>
@@ -344,11 +353,11 @@
 
   <div id="hud">
     <div class="hudBox">
-      <div class="hudLabel">ARROWS</div>
+      <div class="hudLabel" id="roundLabel">ARROWS</div>
       <div class="hudValue" id="arrowCount">5 / 5</div>
     </div>
 
-    <button id="recenterBtn">🎯 置中</button>
+    <div id="middleControls"><button id="menuBtn" type="button">☰ 關卡</button><button id="recenterBtn">🎯 置中</button></div>
 
     <div class="hudBox right">
       <div class="hudLabel">SCORE</div>
@@ -364,7 +373,7 @@
   </div>
 
   
-  <div id="scoreFlash">+10</div>
+  <div id="scoreFlash">+10</div><div id="fruitNotice" aria-live="polite"></div>
 
   <div id="bottomPanel">
     <div id="gesturePill">🤚 準備</div>
@@ -380,8 +389,8 @@
   <div id="startOverlay" class="overlay">
     <div class="card">
       <div class="logo">🏹</div>
-      <h1>Gyro Archery V2.2</h1>
-      <p class="sub">低延遲優化版：穩定瞄準 + 握拳拉弓 + 放掌射箭</p>
+      <h1>Gyro Archery V2.3</h1>
+      <p class="sub">兩大關卡：固定箭靶 + 拋擲水果射擊</p>
 
       <div class="steps">
         <div class="step"><div class="ico">📱</div><div><b>左手拿手機</b><span>像自拍一樣，用手機方向控制準星。</span></div></div>
@@ -389,7 +398,7 @@
         <div class="step"><div class="ico">🤚🏻</div><div><b>張開手掌放箭</b><span>只判斷 OPEN / CLOSED，不再估算手與鏡頭距離。</span></div></div>
       </div>
 
-      <button class="primary" id="startBtn">開始設定</button>
+      <div class="levelChoice"><button type="button" class="levelPick chosen" data-level="1">🎯<b>Level 1</b><small>固定箭靶</small></button><button type="button" class="levelPick" data-level="2">🍎<b>Level 2</b><small>Fruit Toss · 10 個水果</small></button></div><button class="primary" id="startBtn">開始設定</button>
       <div id="setupMsg"></div>
       <p class="note">需要相機及動作感應器權限。鏡頭影像只在你的裝置內用於手勢辨認，不會上載或儲存。</p>
     </div>
@@ -422,7 +431,7 @@
         </div>
       </div>
 
-      <button class="secondary" id="enterGameBtn" disabled>手勢測試 0 / 3</button>
+      <div id="selectedLevelNote" class="note">已選：Level 1 — 固定箭靶</div><button class="secondary" id="enterGameBtn" disabled>手勢測試 0 / 3</button>
       <p class="note">如果之後覺得瞄準偏移，遊戲中可直接按「🎯 置中」。</p>
     </div>
   </div>
@@ -433,7 +442,7 @@
       <h1>本局完成</h1>
       <div id="endScore">0 / 50</div>
       <div id="endBreakdown">—</div>
-      <button class="primary" id="againBtn">再玩一次</button>
+      <button class="primary" id="againBtn">再玩一次</button><button class="secondary" id="chooseLevelBtn">選擇其他關卡</button>
       <button class="secondary" id="endCalBtn">重新設定</button>
     </div>
   </div>
@@ -462,6 +471,49 @@ const tnow=()=>performance.now();
 const config={fistMs:150,openMs:115,lostPauseMs:230,lostCancelMs:700,fullDrawMs:800,minPower:30};
 let active=false,running=false,paused=false,shotLock=false;
 let score=0,arrowsLeft=5,scores=[],impacts=[];
+// Level 2 uses the same camera/aim ray as Level 1, but a moving sphere at target depth.
+let selectedLevel=1,level=1, fruitRound=0,fruit=null,fruitPhase='IDLE', fruitNextAt=0;
+let fruitResolved=0,fruitHits=0,fruitMisses=0,fruitShotUsed=false;
+let fruitParticles=[],fruitCombo=0, fruitShotPending=false;
+const FRUIT_TOTAL=10;
+const FRUITS=[{name:'蘋果',color:'#f4464f',leaf:'#447c3c',points:10},{name:'橙',color:'#f39b28',leaf:'#448c4d',points:10},{name:'梨',color:'#bad747',leaf:'#5c9239',points:10},{name:'西瓜',color:'#3e9d64',leaf:'#24542f',points:10},{name:'檸檬',color:'#f7d947',leaf:'#728b32',points:10}];
+const fruitTime=ts=>Math.max(0,(ts-fruit.start)/1000);
+function fruitPosition(ts){
+ if(!fruit)return null;
+ const t=fruitTime(ts), y=-2.65+fruit.vy*t-.5*fruit.gravity*t*t;
+ return [fruit.x0+fruit.vx*t,y,-V3.D];
+}
+function fruitRoundEnd(ts){
+ if(fruitPhase!=='FLYING')return;
+ fruitPhase='WAIT';fruitResolved++;fruitNextAt=ts+1000;
+ if(!fruitShotUsed){fruitMisses++;fruitCombo=0;displayFruitMessage('錯過了！下一個水果…');}
+}
+function displayFruitMessage(t){const e=$('fruitNotice');e.textContent=t;e.style.display=t?'block':'none';}
+function beginFruit(ts){
+ if(fruitResolved>=FRUIT_TOTAL){endGame();return;}
+ fruitRound=fruitResolved+1; fruitShotUsed=false;
+ const d=fruitRound<=3?0:fruitRound<=7?1:2;
+ const kind=FRUITS[(fruitRound-1+Math.floor(Math.random()*FRUITS.length))%FRUITS.length];
+ // Longer airtime than the draw gesture: approx 3.4-4.2 seconds.
+ const gravity=1.25+d*.13, vy=2.65+d*.03;
+ fruit={...kind,start:ts,x0:(Math.random()-.5)*1.35,vx:(Math.random()-.5)*(.22+d*.12),vy,gravity,radius:fruitRound<=3?.68:fruitRound<=7?.60:.52};
+ fruitPhase='FLYING';$('arrowCount').textContent=`${fruitRound} / ${FRUIT_TOTAL}`;
+ displayFruitMessage(`🍎 第 ${fruitRound} 個水果 — 瞄準！`);
+ setTimeout(()=>{if(fruitPhase==='FLYING'&&fruit?.start===ts)displayFruitMessage('');},1100);
+}
+function updateFruit(ts){
+ if(level!==2||!active||paused)return;
+ if(fruitPhase==='WAIT'&&ts>=fruitNextAt&&!shotLock){beginFruit(ts);return;}
+ if(fruitPhase==='FLYING'&&fruitPosition(ts)?.[1]<-2.85&&fruitTime(ts)>1.1)fruitRoundEnd(ts);
+ fruitParticles=fruitParticles.filter(p=>ts-p.start<650);
+}
+function fruitBurst(position,ts,color){
+ for(let i=0;i<18;i++){
+  const a=i*Math.PI*2/18+Math.random()*.25,s=.7+Math.random()*1.1;
+  fruitParticles.push({start:ts,pos:position,dx:Math.cos(a)*s,dy:Math.sin(a)*s,color});
+ }
+}
+
 let track=null,raw='UNKNOWN',stable='UNKNOWN',candidate='UNKNOWN',candidateSince=0,lastSeen=0,lastValid=0;
 let draw='READY',drawElapsed=0,lastDrawUpdate=0,power=0,fullBuzz=false,requiresFreshFist=true;
 let calibratedFist=false,calibratedOpen=false,calCount=0,calPhase='FIST';
@@ -666,6 +718,7 @@ function aim(ts){
 function scoreFor(x,y){const r=Math.hypot(x,y);return r>1?0:clamp(10-Math.floor(r*10),1,10);}
 function arrowRay(){return qRotate(view.q,[0,0,-1]);}
 function shoot(){
+ if(level===2){shootFruit();return;}
  if(shotLock||arrowsLeft<=0)return;
  shotLock=true;draw='SHOOTING';status('💨 放箭！');
  const launch=tnow(),direction=arrowRay();
@@ -688,6 +741,34 @@ function shoot(){
   setTimeout(()=>{shotLock=false;if(!arrowsLeft)endGame();},570);
  },Math.max(.30,duration)*1000);
 }
+function shootFruit(){
+ if(shotLock||fruitPhase!=='FLYING'||fruitShotUsed||!fruit)return;
+ shotLock=true;fruitShotUsed=true;fruitPhase='PROJECTILE';draw='SHOOTING';status('💨 放箭！');
+ const launch=tnow(),direction=arrowRay(),travel=V3.D/Math.max(.20,-direction[2]);
+ const speed=22+power*.23,duration=travel/speed;
+ const arrival=launch+duration*1000, targetAt=fruitPosition(arrival);
+ const tip=[direction[0]*travel,direction[1]*travel-.5*V3.gravity*duration*duration,-V3.D];
+ const dx=tip[0]-targetAt[0],dy=tip[1]-targetAt[1];
+ const isHit=Math.hypot(dx,dy)<=fruit.radius;
+ const shotFruit=fruit;
+ shotAnimation={launch,duration:Math.max(.30,duration),speed,direction:[...direction],hit:tip,power,n:0};
+ navigator.vibrate?.(35);
+ setTimeout(()=>{
+  // The fruit is checked at actual arrival time, not at button press time.
+  if(level!==2||!active)return;
+  if(isHit){
+   const reward=shotFruit.points;
+   score+=reward;fruitHits++;fruitCombo++;
+   $('score').textContent=score;
+   fruitBurst(targetAt,tnow(),shotFruit.color);
+   const f=$('scoreFlash');f.textContent='+'+reward;f.classList.remove('show');void f.offsetWidth;f.classList.add('show');
+   displayFruitMessage(fruitCombo>=2?`命中！ COMBO ×${fruitCombo}`:'🎯 命中水果！');
+  }else{fruitCombo=0;fruitMisses++;displayFruitMessage('MISS — 下次再試！');}
+  fruitPhase='WAIT';fruitResolved++;fruitNextAt=tnow()+1000;
+  cancel();resetTracking();
+  setTimeout(()=>{shotLock=false;},450);
+ },Math.max(.30,duration)*1000);
+}
 function renderImpacts(){ /* V2.2 impact marks are rendered in target local space on the same canvas. */ }
 function poly(points,fill,m,q){const pts=points.map(p=>project(p,m,q));if(pts.some(p=>!p))return;g.beginPath();g.moveTo(pts[0].x,pts[0].y);for(let i=1;i<pts.length;i++)g.lineTo(pts[i].x,pts[i].y);g.closePath();g.fillStyle=fill;g.fill();}
 function drawWorld(ts){
@@ -703,6 +784,7 @@ function drawWorld(ts){
  g.fillStyle='#77a8ae';g.beginPath();g.moveTo(0,m.h);
  for(let x=-15;x<=m.w+20;x+=12){let s=x+view.yaw*m.f*.4;let y=horizon-30-24*Math.sin(s*.016)-17*Math.sin(s*.043);g.lineTo(x,y);}g.lineTo(m.w,m.h);g.fill();
  g.fillStyle='#87b966';g.fillRect(0,clamp(horizon,0,m.h),m.w,m.h);
+ if(level===1){
  // Track and stand use world coordinates and the same camera projection as the target.
  poly([[-1.4,-2.4,-7.5],[1.4,-2.4,-7.5],[3.8,-2.4,-1],[-3.8,-2.4,-1]],'#cfb78b',m);
  poly([[-.1,-2.2,-V3.D],[.1,-2.2,-V3.D],[.05,-.3,-V3.D],[-.05,-.3,-V3.D]],'#876140',m);
@@ -719,11 +801,39 @@ function drawWorld(ts){
    g.beginPath();g.arc(0,0,2.3,0,Math.PI*2);g.fillStyle='#66522b';g.fill();g.restore();
   }
  }
+ }
+ if(level===2){
+  // Moving fruit is projected in the same world/camera coordinate system as arrows.
+  if(fruit&&(fruitPhase==='FLYING'||fruitPhase==='PROJECTILE')){
+   const loc=fruitPosition(ts),center=project(loc,m),edge=project([loc[0]+fruit.radius,loc[1],loc[2]],m);
+   if(center&&edge){
+    const r=Math.abs(edge.x-center.x);
+    if(r>2&&r<400){
+     g.save();g.translate(center.x,center.y);
+     g.fillStyle='rgba(0,0,0,.15)';g.beginPath();g.ellipse(4,5,r*.97,r*.90,0,0,Math.PI*2);g.fill();
+     g.fillStyle=fruit.color;g.beginPath();g.arc(0,0,r,0,Math.PI*2);g.fill();
+     g.fillStyle='rgba(255,255,255,.35)';g.beginPath();g.ellipse(-r*.32,-r*.34,r*.20,r*.29,-.65,0,Math.PI*2);g.fill();
+     g.strokeStyle='#6b4b2e';g.lineWidth=Math.max(2,r*.07);g.beginPath();g.moveTo(0,-r*.91);g.lineTo(r*.06,-r*1.20);g.stroke();
+     g.fillStyle=fruit.leaf;g.beginPath();g.ellipse(r*.26,-r*1.09,r*.29,r*.11,-.34,0,Math.PI*2);g.fill();
+     if(fruit.name==='西瓜'){g.strokeStyle='#276943';g.lineWidth=r*.1;for(let i=-2;i<=2;i++){g.beginPath();g.moveTo(i*r*.30,-r*.85);g.quadraticCurveTo(i*r*.12,0,i*r*.30,r*.85);g.stroke();}}
+     g.restore();
+    }
+   }
+  }
+  for(const particle of fruitParticles){
+   const age=(ts-particle.start)/1000, pos=[particle.pos[0]+particle.dx*age,particle.pos[1]+particle.dy*age-1.8*age*age,particle.pos[2]];
+   const sp=project(pos,m);if(!sp)continue;
+   g.globalAlpha=Math.max(0,1-age/0.65);g.fillStyle=particle.color;
+   g.beginPath();g.arc(sp.x,sp.y,Math.max(2,5/sp.z*3),0,Math.PI*2);g.fill();g.globalAlpha=1;
+  }
+ }
+ if(level!==2){
  for(const p of hitMarkers){
   if(Math.hypot(p.x,p.y)>1)continue;
   const at=project([p.x*V3.R,-p.y*V3.R,-V3.D+.005],m);
   if(!at)continue;
   g.save();g.translate(at.x,at.y);g.rotate(-.3);g.strokeStyle='#503c2d';g.lineWidth=3;g.beginPath();g.moveTo(-2,0);g.lineTo(22,-7);g.stroke();g.fillStyle='#fafafa';g.strokeStyle='#182b37';g.lineWidth=2;g.beginPath();g.arc(0,0,5,0,Math.PI*2);g.fill();g.stroke();g.restore();
+ }
  }
  if(shotAnimation){
   const a=shotAnimation,elapsed=(ts-a.launch)/1000;
@@ -736,8 +846,12 @@ function drawWorld(ts){
   }else if(elapsed>a.duration+.08) shotAnimation=null;
  }
 }
-function resetGame(){score=0;arrowsLeft=5;scores=[];impacts=[];hitMarkers=[];shotAnimation=null;shotLock=false;$('score').textContent='0';$('arrowCount').textContent='5 / 5';renderImpacts();cancel();resetTracking();active=true;}
-function endGame(){active=false;cancel();$('endScore').textContent=score+' / 50';$('endBreakdown').textContent=scores.map((s,i)=>`第 ${i+1} 箭：${s} 分`).join('　');$('endOverlay').classList.remove('hidden');}
+function resetGame(){
+ level=selectedLevel;fruitRound=0;fruitResolved=0;fruitHits=0;fruitMisses=0;fruitCombo=0;fruitParticles=[];fruit=null;fruitPhase='IDLE';fruitShotUsed=false;
+ $('roundLabel').textContent=level===2?'FRUIT':'ARROWS';
+ $('fruitNotice').style.display='none';
+ score=0;arrowsLeft=5;scores=[];impacts=[];hitMarkers=[];shotAnimation=null;shotLock=false;$('score').textContent='0';$('arrowCount').textContent=level===2?'0 / 10':'5 / 5';renderImpacts();cancel();resetTracking();active=true;if(level===2){fruitPhase='WAIT';fruitNextAt=tnow()+650;}}
+function endGame(){active=false;cancel();if(level===2){$('endScore').textContent=score+' 分';$('endBreakdown').textContent=`🍎 命中 ${fruitHits} / ${FRUIT_TOTAL}　・　未中 ${fruitMisses}`;}else{$('endScore').textContent=score+' / 50';$('endBreakdown').textContent=scores.map((s,i)=>`第 ${i+1} 箭：${s} 分`).join('　');}$('endOverlay').classList.remove('hidden');}
 function pauseOrientation(){const landscape=innerWidth>innerHeight;if(landscape){paused=true;if(draw!=='READY')cancel();$('rotateOverlay').classList.remove('hidden');}else if(paused){paused=false;$('rotateOverlay').classList.add('hidden');centerQ=null;status('🎯 請重新置中');}}
 function processFrames(ts){
  if(!running||frameBusy||!video.videoWidth||video.readyState<2||ts-lastFrame<70||video.currentTime===lastFrameTime)return;
@@ -770,7 +884,7 @@ let lastDebug=0;
 function loop(ts){
  if(running){
   processFrames(ts);if(frameBusy&&workerOn&&ts-lastFrame>1500){console.warn('Worker stalled; pending frame reset');frameBusy=false;}
-  if(active&&!paused)updateDraw(ts);
+  if(active&&!paused){updateDraw(ts);updateFruit(ts);}
   if(active&&!paused)aim(ts);
   drawWorld(ts);
   renderN++;if(ts-renderStart>1000){renderFps=renderN*1000/(ts-renderStart);renderStart=ts;renderN=0;}
@@ -780,6 +894,7 @@ function loop(ts){
 }
 $('startBtn').addEventListener('click',async()=>{
  const b=$('startBtn'),msg=$('setupMsg');b.disabled=true;
+ if(running){$('startOverlay').classList.add('hidden');$('calOverlay').classList.remove('hidden');b.disabled=false;return;}
  try{
   msg.textContent='正在要求動作感應器權限…';await permission();
   msg.textContent='正在啟動鏡頭…';await camera();
@@ -794,6 +909,18 @@ $('flipX').addEventListener('click',()=>{flipX=!flipX;$('flipX').textContent='�
 $('flipY').addEventListener('click',()=>{flipY=!flipY;$('flipY').textContent='↕ 反轉上下：'+(flipY?'開':'關');});
 $('aimTest').addEventListener('click',()=>{const p=$('aimHint');p.hidden=!p.hidden;});
 $('againBtn').addEventListener('click',()=>{$('endOverlay').classList.add('hidden');resetGame();});
+function showLevelChoice(){
+ active=false;shotLock=false;cancel();resetTracking();$('endOverlay').classList.add('hidden');
+ $('calOverlay').classList.add('hidden');$('startOverlay').classList.remove('hidden');
+ $('startBtn').textContent=running?'進入遊戲':'開始設定';$('startBtn').disabled=false;
+}
+$('menuBtn').addEventListener('click',showLevelChoice);
+$('chooseLevelBtn').addEventListener('click',showLevelChoice);
+document.querySelectorAll('[data-level]').forEach(b=>b.addEventListener('click',()=>{
+ selectedLevel=Number(b.dataset.level);
+ document.querySelectorAll('[data-level]').forEach(x=>x.classList.toggle('chosen',x===b));
+ $('selectedLevelNote').textContent=selectedLevel===2?'已選：Level 2 — Fruit Toss · 10 個水果':'已選：Level 1 — 固定箭靶';
+}));
 $('endCalBtn').addEventListener('click',()=>{$('endOverlay').classList.add('hidden');active=false;cancel();resetTracking();calCount=0;calPhase='FIST';calibratedFist=calibratedOpen=false;updateCameraStatus();$('calOverlay').classList.remove('hidden');});
 document.querySelectorAll('[data-sens]').forEach(b=>b.addEventListener('click',()=>{sensitivity=b.dataset.sens;document.querySelectorAll('[data-sens]').forEach(x=>x.classList.remove('active'));b.classList.add('active');}));
 window.addEventListener('resize',pauseOrientation);
